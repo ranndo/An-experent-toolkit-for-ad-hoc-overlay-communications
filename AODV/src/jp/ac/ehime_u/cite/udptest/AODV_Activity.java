@@ -1,16 +1,13 @@
 package jp.ac.ehime_u.cite.udptest;
 
-import java.io.BufferedInputStream;
-import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
@@ -26,28 +23,36 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.Enumeration;
-import java.util.Iterator;
-import java.util.Timer;
-import java.util.TimerTask;
+import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import android.app.Activity;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager.NameNotFoundException;
+import android.database.sqlite.SQLiteDatabase;
 import android.net.Uri;
+import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Message;
+import android.os.RemoteException;
 import android.util.Log;
-import android.view.Display;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.WindowManager;
-import android.view.ViewDebug.IntToString;
+import android.view.View.OnClickListener;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ListView;
+import android.widget.TextView;
+import android.widget.Toast;
 
 public class AODV_Activity extends Activity {
 
@@ -61,6 +66,9 @@ public class AODV_Activity extends Activity {
 	private EditText text_view_received;
 
 	public static Context context;
+	
+	// 受信処理クラス
+	public static ReceiveProcess receiveProcess;
 
 	// スレッド
 	private static Thread udpListenerThread; // 受信スレッド
@@ -73,12 +81,37 @@ public class AODV_Activity extends Activity {
 	// PATH_DISCOVERY_TIMEの間に受信したRREQの送信元とIDを記録
 	public static ArrayList<PastData> receiveRREQ_List = new ArrayList<PastData>();
 
+	// データベースへ様々な情報を記録
+	public static SQLiteDatabase log_db;
+	public static String MyIP;
+	public static String network_interface;
 
 	// マルチスレッドの排他制御用オブジェクト
 	public static Object routeLock = new Object();
 	public static Object pastDataLock = new Object();
 	public static Object fileManagerLock = new Object();
 	public static Object fileReceivedManagerLock = new Object();
+	
+	// Bluetooth関連
+    // Local Bluetooth adapter
+    private BluetoothAdapter mBluetoothAdapter = null;
+    // Member object for the chat services
+    public static BluetoothChatService mChatService = null;
+    
+    // Message types sent from the BluetoothChatService Handler
+    // DEVICE_???? is KEY_STRING
+    public static final String DEVICE_NAME = "device_name";
+    public static final String DEVICE_ADDRESS = "device_address";
+    public static final String DEVICE_THREAD_NO = "device_thread";
+    public static final int BLUETOOTH_MAX_SLAVE = 7;
+    public static final int MESSAGE_STATE_CHANGE = 1;
+    public static final int MESSAGE_READ = 2;
+    public static final int MESSAGE_WRITE = 3;
+    public static final int MESSAGE_DEVICE_NAME = 4;
+    public static final int MESSAGE_TOAST = 5;
+    // Intent request codes
+    private static final int REQUEST_CONNECT_DEVICE = 1;
+    private static final int REQUEST_ENABLE_BT = 2;
 
 	// その他変数
 	public static int RREQ_ID = 0;
@@ -131,7 +164,7 @@ public class AODV_Activity extends Activity {
 	public void onCreate(Bundle savedInstanceState) {
 		// onCreateをオーバーライドする場合、スーパークラスのメソッドを呼び出す必要がある
 		super.onCreate(savedInstanceState);
-
+		
 		// 起動時にソフトキーボードの立ち上がりを防ぐ
 		this.getWindow().setSoftInputMode(
 				WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
@@ -146,22 +179,22 @@ public class AODV_Activity extends Activity {
 		editTextSrcPort = (EditText) findViewById(R.id.editTextSrcPort);
 		editTextToBeSent = (EditText) findViewById(R.id.editTextToBeSent);
 
-		try {
-			editTextSrc.setText(getIPAddress());
-		} catch (IOException e3) {
-			e3.printStackTrace();
-		}
+		StaticIpAddress sIp = new StaticIpAddress(this);
+		editTextSrc.setText(sIp.getStaticIp());
+		MyIP = sIp.getStaticIp();
 
 		// 受信ログ用のTextView、同様にIDから取得
 		//final EditText text_view_received = (EditText) findViewById(R.id.textViewReceived);
 		text_view_received = (EditText) findViewById(R.id.textViewReceived);
-
+		
+		context = this;
+		
 		// スレッドが起動中でなければ
 		if( udpListenerThread == null ){
 			try {
 				// 受信スレッドのインスタンスを作成
 				UdpListener udp_listener = new UdpListener(new Handler(),
-						text_view_received, 12345, 100);
+						text_view_received, 12345, 100, getApplicationContext());
 				// スレッドを取得
 				udpListenerThread = new Thread(udp_listener);
 			} catch (SocketException e1) {
@@ -170,6 +203,9 @@ public class AODV_Activity extends Activity {
 			// 受信スレッドrun()
 			udpListenerThread.start();
 		}
+		
+		receiveProcess = new ReceiveProcess(new Handler(),
+						text_view_received, 12345, 100, getApplicationContext());
 
 		if( routeManagerThread == null){
 			// 経路監視スレッドのインスタンスを作成
@@ -194,9 +230,6 @@ public class AODV_Activity extends Activity {
 				SelectFile();
 			}
 		});
-
-		context = this;
-
 
 		// 送信Button、同様にIDから取得
 		Button buttonSend = (Button) findViewById(R.id.buttonSend);
@@ -283,17 +316,54 @@ public class AODV_Activity extends Activity {
 						text_view_received.append( route.hopCount +",");
 
 						if(route.stateFlag == 1)
-							text_view_received.append("OK\n");
+							text_view_received.append("OK1,");
 						else
-							text_view_received.append("NG\n");
+							text_view_received.append("NG"+route.stateFlag+",");
+						
+						if(route.bluetoothFlag)
+							text_view_received.append("BT\n");
+						else
+							text_view_received.append("Wi-Fi\n");
 					}
 
 					text_view_received.append(AODV_Activity.routeTable.size()+" RouteFound\n");
 
 					text_view_received.setSelection(text_view_received.getText().length());
 				}
+				if(mChatService != null){
+					String s = mChatService.showConnection();
+					if(s != null){
+						text_view_received.append(s);
+						text_view_received.setSelection(text_view_received.getText().length());
+					}
+					else{
+						text_view_received.append("BTnotConnect\n");
+						text_view_received.setSelection(text_view_received.getText().length());
+					}
+				}
 			}
 		});
+		
+        // Get local Bluetooth adapter
+        mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        // if BT is enabled, start setup
+        if (mBluetoothAdapter != null) {
+            if (mBluetoothAdapter.isEnabled()) {
+            	setupChat();
+            	
+                // Only if the state is STATE_NONE, do we know that we haven't started already
+                if (mChatService.getState() == BluetoothChatService.STATE_NONE) {
+                  // Start the Bluetooth chat services
+                  mChatService.start();
+                }
+            }
+        }
+        
+        
+        
+		// ログデータベースの書き込み準備
+		LogDataBaseOpenHelper DBhelper = new LogDataBaseOpenHelper(getApplicationContext());
+		log_db = DBhelper.getWritableDatabase();
 
 		// 他画面から遷移したときはonNewIntentを通らないため、こちらで処理
 		Intent intent = getIntent();
@@ -393,7 +463,6 @@ public class AODV_Activity extends Activity {
 								, text_view_received, etc_context);
 					}
 				}
-				moveTaskToBack(true);
 			}
 
 			// 起動方法のチェック 暗黙的インテント:DELETEで起動されていれば
@@ -403,7 +472,6 @@ public class AODV_Activity extends Activity {
 				if("path".equals(uri.getScheme())){
 					deleteFile(uri.getEncodedSchemeSpecificPart());
 				}
-				moveTaskToBack(true);
 			}
 		}
 
@@ -413,8 +481,16 @@ public class AODV_Activity extends Activity {
 	protected void onResume() {
 		super.onResume();
 
+		WifiManager wifi = (WifiManager)getSystemService(WIFI_SERVICE);
+		network_interface = wifi.getConnectionInfo().getSSID();
+		if(network_interface == null){
+			network_interface = "other";
+		}
+
 		Log.d("onResume()","onresume()");
 	}
+	
+
 
 	// ルート作成＋メッセージ送信
 	public static void routeCreate(String destination_address, String source_address, final int destination_port
@@ -622,6 +698,13 @@ public class AODV_Activity extends Activity {
 		super.onPause();
 	}
 
+	public void onDestroy(){
+		if (mChatService != null){
+			mChatService.stop();
+		}
+		
+		super.onDestroy();
+	}
 
 
 	// メニューの追加
@@ -629,9 +712,11 @@ public class AODV_Activity extends Activity {
 		boolean ret = super.onCreateOptionsMenu(menu);
 
 		menu.add(0 , Menu.FIRST , Menu.NONE
-				, getString(R.string.menu_next)).setIcon(android.R.drawable.ic_menu_crop);
+				, getString(R.string.Bluetooth)).setIcon(android.R.drawable.ic_menu_crop);
 		menu.add(0 , Menu.FIRST + 1 ,Menu.NONE
-				, getString(R.string.menu_finish)).setIcon(android.R.drawable.ic_menu_close_clear_cancel);
+				, "CALL"+getString(R.string.menu_finish)).setIcon(android.R.drawable.ic_menu_close_clear_cancel);
+		menu.add(0 , Menu.FIRST + 2 ,Menu.NONE
+				, "Image");
 
 		return ret;
 	}
@@ -644,12 +729,36 @@ public class AODV_Activity extends Activity {
         // ルートテーブルメニューが押されたとき
         case Menu.FIRST:
             //別のActivityを起動させる
-            Intent intent = new Intent();
-            intent.setClassName(
-                    "jp.ac.ehime_u.cite.udptest",
-                    "jp.ac.ehime_u.cite.udptest.RouteActivity");
-            startActivity(intent);
-
+//            Intent intent = new Intent();
+//
+//            String package_name = "jp.ac.ehime_u.cite.remotecamera.ImageViewerActivity";
+//            String class_name = package_name.substring(0, package_name.lastIndexOf('.'));
+//            Log.d("Test",package_name + " / " +class_name);
+//            intent.setAction(Intent.ACTION_VIEW);
+//            intent.setClassName(
+//                    "jp.ac.ehime_u.cite.remotecamera",
+//                    "jp.ac.ehime_u.cite.remotecamera.ImageViewerActivity");
+//            startActivity(intent);
+            
+            // Bluetooth.on/off
+            // If the adapter is null, then Bluetooth is not supported
+            if (mBluetoothAdapter == null) {
+                Toast.makeText(this, "Bluetooth is not available", Toast.LENGTH_LONG).show();
+            }
+            else{
+	            // If BT is not on, request that it be enabled.
+	            // setupChat() will then be called during onActivityResult
+	            if (!mBluetoothAdapter.isEnabled()) {
+	                Intent enableIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+	                startActivityForResult(enableIntent, REQUEST_ENABLE_BT);
+	            // Otherwise, BT to OFF.
+	            // End BTService
+	            } else {
+	            	if (mChatService != null) mChatService.stop();
+	                mBluetoothAdapter.disable();
+	            }
+            }
+            
         	return true;
         // 終了メニューが押されたとき
         case Menu.FIRST + 1:
@@ -664,20 +773,119 @@ public class AODV_Activity extends Activity {
             //this.moveTaskToBack(true);
 
         	//udpListenerThread.destroy();
+//            Intent intent1 = new Intent();
+//            intent1.setAction(Intent.ACTION_CALL);
+//            intent1.setData(Uri.parse("CameraCapture:0_300_200_133.11.34.16"));	// TASK:〇の部分をセット
+//            intent1.putExtra("PACKAGE","jp.ac.ehime_u.cite.udptest");
+//            intent1.putExtra("ID", 100);
+//            AODV_Activity.context.startActivity(intent1);
+
         	finish();
 
             return true;
+        case Menu.FIRST + 2:
+        	// 簡易テスト用
+        	FileInputStream in;
+			try {
+				in = openFileInput("imagePacket.txt");
+	        	byte[] buffer = new byte[1024*64];
+	        	int size = in.read(buffer);
+	        	SendByteArray.send(buffer ,getByteAddress("192.168.10.141") ,size);
+	        	in.close();
+			} catch (FileNotFoundException e) {
+				// TODO 自動生成された catch ブロック
+				e.printStackTrace();
+			} catch (IOException e) {
+				// TODO 自動生成された catch ブロック
+				e.printStackTrace();
+			}
+
+        
+        	break;
         default:
             break;
         }
         return super.onOptionsItemSelected(item);
     }
 
+    public void onActivityResult(int requestCode, int resultCode, Intent data) {
+        Log.d(this.getLocalClassName(), "onActivityResult " + resultCode);
+        switch (requestCode) {
+        case REQUEST_ENABLE_BT:
+            // When the request to enable Bluetooth returns
+            if (resultCode == Activity.RESULT_OK) {
+                // Bluetooth is now enabled, so set up a chat session
+                setupChat();
+                
+                // Only if the state is STATE_NONE, do we know that we haven't started already
+                if (mChatService.getState() == BluetoothChatService.STATE_NONE) {
+                  // Start the Bluetooth chat services
+                  mChatService.start();
+                }
+            } else {
+                // User did not enable Bluetooth or an error occured
+                Log.d(this.getLocalClassName(), "BT not enabled");
+                Toast.makeText(this, R.string.bt_not_enabled_leaving, Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+    
+    private void setupChat() {
+        Log.d(this.getLocalClassName(), "setupChat()");
+
+        // Initialize the BluetoothChatService to perform bluetooth connections
+        mChatService = new BluetoothChatService(this, mHandler);
+    }
+    
+    // The Handler that gets information back from the BluetoothChatService
+    private final Handler mHandler = new Handler() {
+        @Override
+        public void handleMessage(Message msg) {
+            switch (msg.what) {
+            case MESSAGE_STATE_CHANGE:
+                Log.i(getLocalClassName(), "MESSAGE_STATE_CHANGE: " + msg.arg1);
+                setTitle("StateChange:"+msg.arg1);
+                switch (msg.arg1) {
+                case BluetoothChatService.STATE_CONNECTED:
+                    break;
+                case BluetoothChatService.STATE_CONNECTING:
+                    break; 
+                case BluetoothChatService.STATE_LISTEN:
+                case BluetoothChatService.STATE_NONE:
+                    break;
+                }
+                break;
+            case MESSAGE_WRITE:
+//                byte[] writeBuf = (byte[]) msg.obj;
+//                // construct a string from the buffer
+//                String writeMessage = new String(writeBuf);
+                break;
+            case MESSAGE_READ:
+//                byte[] readBuf = (byte[]) msg.obj;
+//                // construct a string from the valid bytes in the buffer
+//                String readMessage = new String(readBuf, 0, msg.arg1);
+//                if (readMessage.length() > 0) {
+//                    mConversationArrayAdapter.add(mConnectedDeviceName+":  " + readMessage);
+//                }
+                break;
+            case MESSAGE_DEVICE_NAME:
+                // save the connected device's name
+            	
+                break;
+            case MESSAGE_TOAST:
+            	//if (!msg.getData().getString(TOAST).contains("Unable to connect device")) {
+//                    Toast.makeText(getApplicationContext(), msg.getData().getString(TOAST),
+//                            Toast.LENGTH_SHORT).show();
+            	//}
+                break;
+            }
+        }
+    };
 
 	// ログの表示用EditTextのサイズを画面サイズに合わせて動的に決定
 	// OnCreate()ではまだViewがレイアウトが初期化されていないため？
 	// Viewサイズなどの取得が不可
-//	@Override
+/*	@Override
 //	public void onWindowFocusChanged(boolean hasFocus) {
 //		super.onWindowFocusChanged(hasFocus);
 //
@@ -700,7 +908,7 @@ public class AODV_Activity extends Activity {
 //		text_view_received.setHeight(display_height - received_top
 //				- clear_height - 50);
 //	}
-
+*/
 
 
 	// 送信先IPをローカルファイルに保存
@@ -729,6 +937,12 @@ public class AODV_Activity extends Activity {
 	public static void addRoute(RouteTable route) {
 		synchronized (routeLock) {
 			routeTable.add(route);
+
+			// 時刻取得
+			Date date = new Date();
+			SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd kk:mm:ss SSS", Locale.JAPANESE);
+			LogDataBaseOpenHelper.insertLogTableROUTE(log_db, 10001, MyIP, getStringByByteAddress(route.toIpAdd), (int)route.hopCount, route.toSeqNum
+					, getStringByByteAddress(route.nextIpAdd), (int)route.stateFlag, (int)route.lifeTime, sdf.format(date), network_interface);
 		}
 //		if(RunRouteActivity){
 //			RouteActivity.addRoute_sql(route.toIpAdd, route.hopCount
@@ -742,7 +956,15 @@ public class AODV_Activity extends Activity {
 //			RouteActivity.removeRoute_sql(getRoute(index).toIpAdd);
 //		}
 		synchronized (routeLock) {
+			RouteTable route = routeTable.get(index);
+			// 時刻取得
+			Date date = new Date();
+			SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd kk:mm:ss SSS", Locale.JAPANESE);
+
+			LogDataBaseOpenHelper.insertLogTableROUTE(log_db, 10003, MyIP, getStringByByteAddress(route.toIpAdd), (int)route.hopCount, route.toSeqNum
+					, getStringByByteAddress(route.nextIpAdd), (int)route.stateFlag, (int)route.lifeTime, sdf.format(date), network_interface);
 			routeTable.remove(index);
+
 		}
 
 	}
@@ -750,7 +972,19 @@ public class AODV_Activity extends Activity {
 	// ルートテーブルの要素を上書きする、排他制御
 	public static void setRoute(int index, RouteTable route) {
 		synchronized (routeLock) {
+			RouteTable pre_route = routeTable.get(index);
+			// 時刻取得
+			Date date = new Date();
+			SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd kk:mm:ss SSS", Locale.JAPANESE);
+
+			// 経路変更前と後を記録
+			LogDataBaseOpenHelper.insertLogTableROUTE(log_db, 10002, MyIP, getStringByByteAddress(pre_route.toIpAdd), (int)pre_route.hopCount, pre_route.toSeqNum
+					, getStringByByteAddress(pre_route.nextIpAdd), (int)pre_route.stateFlag, (int)pre_route.lifeTime, sdf.format(date), network_interface);
+
 			routeTable.set(index, route);
+
+			LogDataBaseOpenHelper.insertLogTableROUTE(log_db, 10002, MyIP, getStringByByteAddress(route.toIpAdd), (int)route.hopCount, route.toSeqNum
+					, getStringByByteAddress(route.nextIpAdd), (int)route.stateFlag, (int)route.lifeTime, sdf.format(date), network_interface);
 		}
 //		if(RunRouteActivity){
 //			RouteActivity.setRoute_sql();
@@ -851,7 +1085,7 @@ public class AODV_Activity extends Activity {
 		//editTextToBeSent = (EditText)findViewById(R.id.editTextToBeSent);
 		final String text = editTextToBeSent.getText().toString();
 		int index;
-
+        
 		try{
 			// 古すぎる送信データを削除
 			while( (index=searchLifeTimeEmpty()) != -1){
@@ -918,36 +1152,7 @@ public class AODV_Activity extends Activity {
 
 								mHandler.post(new Runnable() {
 									public void run() {
-
-										// 送信try
-										try {
-											// 次ホップをルートテーブルから参照
-											InetAddress next_hop_Inet = null;
-											try {
-												next_hop_Inet = InetAddress
-														.getByAddress(destination_next_hop_address_b);
-											} catch (UnknownHostException e1) {
-												e1.printStackTrace();
-											}
-
-											// 送信先情報
-											InetSocketAddress destination_inet_socket_address = new InetSocketAddress(
-													next_hop_Inet.getHostAddress(), port);
-
-											// 送信パケットの生成
-											DatagramPacket packet_to_be_sent = new DatagramPacket(
-													buffer, buffer.length,
-													destination_inet_socket_address);
-											// 送信用のクラスを生成、送信、クローズ
-											DatagramSocket datagram_socket = new DatagramSocket();
-											datagram_socket.send(packet_to_be_sent);
-											datagram_socket.close();
-										} catch (SocketException e1) {
-											e1.printStackTrace();
-										} catch (IOException e1) {
-											e1.printStackTrace();
-										}
-
+										SendByteArray.send(buffer, destination_next_hop_address_b);
 									}
 
 								});
@@ -989,34 +1194,7 @@ public class AODV_Activity extends Activity {
 					destination_address_b, source_address_b);
 
 			// 送信try
-			try {
-				// 次ホップをルートテーブルから参照
-				InetAddress next_hop_Inet = null;
-				try {
-					next_hop_Inet = InetAddress
-							.getByAddress(destination_next_hop_address_b);
-				} catch (UnknownHostException e1) {
-					e1.printStackTrace();
-				}
-
-				// 送信先情報
-				InetSocketAddress destination_inet_socket_address = new InetSocketAddress(
-						next_hop_Inet.getHostAddress(), destination_port);
-
-				// 送信パケットの生成
-				DatagramPacket packet_to_be_sent = new DatagramPacket(
-						buffer, buffer.length,
-						destination_inet_socket_address);
-				// 送信用のクラスを生成、送信、クローズ
-				DatagramSocket datagram_socket = new DatagramSocket();
-				datagram_socket.send(packet_to_be_sent);
-				datagram_socket.close();
-			} catch (SocketException e1) {
-				e1.printStackTrace();
-			} catch (IOException e1) {
-				e1.printStackTrace();
-			}
-
+			SendByteArray.send(buffer, destination_next_hop_address_b);
 		}
 
 
@@ -1051,36 +1229,6 @@ public class AODV_Activity extends Activity {
 		}
 	}
 
-	// 自身のIPアドレスを取得
-	public static String getIPAddress() throws IOException{
-	    Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
-
-	    String regex = "[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}";
-	    Pattern pattern = Pattern.compile(regex);
-
-	    while(interfaces.hasMoreElements()){
-	        NetworkInterface network = interfaces.nextElement();
-	        Enumeration<InetAddress> addresses = network.getInetAddresses();
-
-	        while(addresses.hasMoreElements()){
-	            String address = addresses.nextElement().getHostAddress();
-	            Matcher matcher = pattern.matcher(address);
-
-	            Boolean b1 = !("127.0.0.1".equals(address));
-	            Boolean b2 = !("0.0.0.0".equals(address));
-	            Boolean b3 = matcher.find();
-
-	            //127.0.0.1と0.0.0.0以外のアドレスが見つかったらそれを返す
-	            if(b1 && b2 && b3){
-	                return address;
-	            }
-	        }
-	    }
-
-	    return "127.0.0.1";
-	}
-
-
 	// IPアドレス(byte配列)から文字列(例:"127.0.0.1")へ変換
 	public static String getStringByByteAddress(byte[] ip_address){
 
@@ -1105,7 +1253,7 @@ public class AODV_Activity extends Activity {
 
 
 	// int型をbyte[]型へ変換
-	private byte[] intToByte(int num){
+	public static byte[] intToByte(int num){
 
 		// バイト配列への出力を行うストリーム
 		ByteArrayOutputStream bout = new ByteArrayOutputStream();
@@ -1122,5 +1270,49 @@ public class AODV_Activity extends Activity {
 		// バイト配列をバイトストリームから取り出す
 		byte[] bytes = bout.toByteArray();
 		return bytes;
+	}
+
+	// byte[]型をint型へ変換
+	public static int byteToInt(byte[] num){
+
+		int value = 0;
+		// バイト配列の入力を行うストリーム
+		ByteArrayInputStream bin = new ByteArrayInputStream(num);
+
+		// DataInputStreamと連結
+		DataInputStream in = new DataInputStream(bin);
+
+		try{	// intを読み込み
+			value = in.readInt();
+		}catch(IOException e){
+			System.out.println(e);
+		}
+		return value;
+	}
+
+	// String型のアドレスをbyte[]型に変換
+	public byte[] getByteAddress(String str){
+
+		// 分割
+		String[] s_bara = str.split("\\.");
+
+		byte[] b_bara = new byte[s_bara.length];
+		for(int i=0;i<s_bara.length;i++){
+			b_bara[i] = (byte)Integer.parseInt(s_bara[i]);
+		}
+		return b_bara;
+	}
+	
+	// Log.d
+	public static void logD(String mes){
+		try {
+			FileOutputStream out = context.openFileOutput("LogD.txt",MODE_PRIVATE | MODE_APPEND);
+			out.write((mes+System.getProperty("line.separator")).getBytes());
+			out.close();
+		} catch (FileNotFoundException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
 	}
 }

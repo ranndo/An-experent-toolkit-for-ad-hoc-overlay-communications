@@ -3,7 +3,10 @@ package jp.ac.ehime_u.cite.udptest;
 
 import java.net.*;
 import java.io.*;
+import java.text.SimpleDateFormat;
 import java.util.*;
+
+import android.util.Log;
 
 public class RREQ {
 	// RREQメッセージのフィールド	以下[フォーマット上の位置(バイト)]、解説
@@ -23,12 +26,12 @@ public class RREQ {
 	int fromSeqNum;		// [20-23] 送信元ノードへの経路において利用される現在のシーケンス番号
 	int timeToLive;		// [24-27] 生存時間TTL、中間ノードを残りいくつまで許すか
 	String message;		// [28-??]*通常では使用しない。ブロードキャストメッセージの場合、メッセージを付加
-	
+
 	// RREQメッセージの送信
 	// 引数：送信先(String型)
 	public void send(byte[] destination_address, byte[] myAddress, boolean flagJ ,boolean flagR ,boolean flagG ,boolean flagD ,boolean flagU
 			,int toSeq ,int fromSeq,int ID,int TTL,int port,String text) {
-		
+
 		// 各フィールドの初期化
 		type = 1;	// RREQを示す
 		// 各フラグを1バイトの先頭5ビットに納める
@@ -39,22 +42,22 @@ public class RREQ {
 				|((flagU)? (2<<2):0));		// 00001000
 		reserved = 0;
 		hopCount = 0;
-		
+
 		RREQ_ID = ID;
-		
+
 		toIpAdd  = destination_address;
 		toSeqNum = toSeq;
-		
+
 		fromIpAdd = myAddress;
 		fromSeqNum = fromSeq;
 		timeToLive = TTL;
 		message = text;
 		byte[] message_b = null;
 		boolean bload_cast_flag = false;
-		
+
 		// UDPパケットに含めるデータ
 		byte[] sendBuffer = null;
-		
+
 		// 最終宛先がブロードキャストアドレスなら
 		if( Arrays.equals(getByteAddress(AODV_Activity.BLOAD_CAST_ADDRESS), destination_address)){
 			message_b = message.getBytes();
@@ -64,7 +67,7 @@ public class RREQ {
 		else{
 			sendBuffer = new byte[28];
 		}
-		
+
 		sendBuffer[0] = type;
 		sendBuffer[1] = flag;
 		sendBuffer[2] = reserved;
@@ -75,100 +78,43 @@ public class RREQ {
 		System.arraycopy(fromIpAdd			  ,0,sendBuffer,16,4);
 		System.arraycopy(intToByte(fromSeqNum),0,sendBuffer,20,4);
 		System.arraycopy(intToByte(timeToLive),0,sendBuffer,24,4);
-		
+
 		if(bload_cast_flag){
 			System.arraycopy(message_b,0,sendBuffer,28,message_b.length);
 		}
-		
-		// データグラムソケットを開く
-		DatagramSocket soc = null;
-		try {
-			soc = new DatagramSocket();
-		} catch (SocketException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		}
-		
-        // UDPパケットを送信する先となるブロードキャストアドレス
-        InetSocketAddress remoteAddress =
-        			 new InetSocketAddress("255.255.255.255", port);
-        
-        // UDPパケット
-        DatagramPacket sendPacket = null;
-		try {
-			sendPacket = new DatagramPacket(sendBuffer, sendBuffer.length, remoteAddress);
-		} catch (SocketException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		}
-        
-        // DatagramSocketインスタンスを生成して、UDPパケットを送信
-        try {
-			soc.send(sendPacket);
-		} catch (IOException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		}
-        
+
+		SendByteArray.send(sendBuffer, SendByteArray.getByteAddress("255.255.255.255"));
+
         System.out.println("RREQメッセージを送信しました");	//###デバッグ用###
-        	
-        //データグラムソケットを閉じる
-        soc.close();
         
+		Date date_rint = new Date();
+		SimpleDateFormat sdf_rint = new SimpleDateFormat("yyyy/MM/dd kk:mm:ss SSS", Locale.JAPANESE);
+		LogDataBaseOpenHelper.insertLogTableAODV(AODV_Activity.log_db, 11, AODV_Activity.MyIP, AODV_Activity.MyIP,
+				getStringByByteAddress(destination_address), 0, fromSeqNum, sdf_rint.format(date_rint), AODV_Activity.network_interface);
 	}
 
 	/***** RREQメッセージの転送 *****/
 	public void send2(byte[] data,int port){
-		
-		DatagramSocket soc = null;
-		try {
-			soc = new DatagramSocket();
-		} catch (SocketException e1) {
-			// TODO 自動生成された catch ブロック
-			e1.printStackTrace();
-		}
-		
-	    // UDPパケットを送信する先となるブロードキャストアドレス
-	    InetSocketAddress remoteAddress =
-	    			 new InetSocketAddress("255.255.255.255", port);
-	    
-	    // UDPパケット
-	    DatagramPacket sendPacket = null;
-		try {
-			sendPacket = new DatagramPacket(data, 28, remoteAddress);
-		} catch (SocketException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		}
-	    
-	    // UDPパケットを送信
-	    try {
-			soc.send(sendPacket);
-		} catch (IOException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		}
-	    
+
+		SendByteArray.send(data, SendByteArray.getByteAddress("255.255.255.255"), 28);
+
 	    System.out.println("RREQメッセージを転送しました");	//###デバッグ用###
-	    	
-	    //データグラムソケットを閉じる
-	    soc.close();
 	}
-	
+
 	// 受信したRREQメッセージが自身のノード宛のものか調べる
 	// 引数：RREQメッセージ
 	public boolean isToMe(byte[] receiveBuffer, byte[] myAddress){
 		// 宛先IPアドレスのコピー先を作成
 		byte[] toIpAdd = new byte[4];
-		
+
 		// 該当部分を抜き出し
 		System.arraycopy(receiveBuffer,8,toIpAdd,0,4);
-		
+
 		if(Arrays.equals(toIpAdd,myAddress))
 				return true;
 		else return false;
 	}
-	
+
 	// RREQメッセージからJフィールドを返す
 	public boolean getFlagJ(byte[] RREQMes){
 		if( (RREQMes[1]&(2<<6)) ==1)
@@ -205,78 +151,78 @@ public class RREQ {
 	}
 	// RREQメッセージからRREQ_IDフィールドを返す
 	public int getRREQ_ID(byte[] RREQMes){
-		
+
 		// 該当部分のbyte[]を抜き出し
 		byte[] buf = new byte[4];
 		System.arraycopy(RREQMes,4,buf,0,4);
-		
+
 		// int型に変換
 		return byteToInt(buf);
 	}
 	// RREQメッセージからtoIpAddフィールドを返す
 	public byte[] getToIpAdd(byte[] RREQMes){
-		
+
 		// 該当部分のbyte[]を抜き出し
 		byte[] buf = new byte[4];
 		System.arraycopy(RREQMes,8,buf,0,4);
-		
+
 		return buf;
 	}
 	// RREQメッセージからtoSeqNumフィールドを返す
 	public int getToSeqNum(byte[] RREQMes){
-		
+
 		// 該当部分のbyte[]を抜き出し
 		byte[] buf = new byte[4];
 		System.arraycopy(RREQMes,12,buf,0,4);
-		
+
 		// int型に変換
 		return byteToInt(buf);
 	}
 	// RREQメッセージからfromoIpAddフィールドを返す
 	public byte[] getFromIpAdd(byte[] RREQMes){
-		
+
 		// 該当部分のbyte[]を抜き出し
 		byte[] buf = new byte[4];
 		System.arraycopy(RREQMes,16,buf,0,4);
-		
+
 		return buf;
 	}
 	// RREQメッセージからfromSeqNumフィールドを返す
 	public int getFromSeqNum(byte[] RREQMes){
-		
+
 		// 該当部分のbyte[]を抜き出し
 		byte[] buf = new byte[4];
 		System.arraycopy(RREQMes,20,buf,0,4);
-		
+
 		// int型に変換
 		return byteToInt(buf);
 	}
 	// RREQメッセージからTTLフィールドを返す
 	public int getTimeToLive(byte[] RREQMes){
-		
+
 		// 該当部分のbyte[]を抜き出し
 		byte[] buf = new byte[4];
 		System.arraycopy(RREQMes,24,buf,0,4);
-		
+
 		// int型に変換
 		return byteToInt(buf);
 	}
 	// RREQメッセージからメッセージフィールドを返す
 	public byte[] getMessage(byte[] RREQMes, int length){
-		
+
 		// 該当部分のbyte[]を抜き出し
 		byte[] buf = new byte[length-28];
 		System.arraycopy(RREQMes,28,buf,0,length-28);
-		
+
 		// int型に変換
 		return buf;
 	}
-	
+
 	// RREQメッセージの送信元シーケンス番号フィールドをセットして返す
 	public byte[] setFromSeqNum(byte[] RREQMes,int num){
 		// 変更する番号をbyte[]型に
 		byte[] seq = intToByte(num);
-		
+
 		// 送信元シーケンス番号の部分に上書き
 		System.arraycopy(seq,0,RREQMes,20,4);
 		return RREQMes;
@@ -285,42 +231,42 @@ public class RREQ {
 	public byte[] setTimeToLive(byte[] RREQMes,int num){
 		// 変更する番号をbyte[]型に
 		byte[] TTL = intToByte(num);
-		
+
 		// 送信元シーケンス番号の部分に上書き
 		System.arraycopy(TTL,0,RREQMes,24,4);
 		return RREQMes;
 	}
-	
+
 	// int型をbyte[]型へ変換
 	public byte[] intToByte(int num){
-		
+
 		// バイト配列への出力を行うストリーム
 		ByteArrayOutputStream bout = new ByteArrayOutputStream();
-		
+
 		// バイト配列への出力を行うストリームをDataOutputStreamと連結する
 		DataOutputStream out = new DataOutputStream(bout);
-			
+
 		try{	// 数値を出力
 			out.writeInt(num);
 		}catch(Exception e){
 				System.out.println(e);
 		}
-		
+
 		// バイト配列をバイトストリームから取り出す
 		byte[] bytes = bout.toByteArray();
 		return bytes;
 	}
-	
+
 	// byte[]型をint型へ変換
 	public int byteToInt(byte[] num){
-		
+
 		int value = 0;
 		// バイト配列の入力を行うストリーム
 		ByteArrayInputStream bin = new ByteArrayInputStream(num);
-		
+
 		// DataInputStreamと連結
 		DataInputStream in = new DataInputStream(bin);
-		
+
 		try{	// intを読み込み
 			value = in.readInt();
 		}catch(IOException e){
@@ -328,23 +274,43 @@ public class RREQ {
 		}
 		return value;
 	}
-	
+
 	// String型のアドレスをbyte[]型に変換
 	public byte[] getByteAddress(String str){
-		
+
 		// 分割
 		String[] s_bara = str.split("\\.");
-		
+
 		byte[] b_bara = new byte[s_bara.length];
 		for(int i=0;i<s_bara.length;i++){
 			b_bara[i] = (byte)Integer.parseInt(s_bara[i]);
 		}
 		return b_bara;
 	}
-	
-	
 
-	
-	
-	
+	// IPアドレス(byte配列)から文字列(例:"127.0.0.1")へ変換
+	public static String getStringByByteAddress(byte[] ip_address){
+
+		if(ip_address.length != 4){
+			return "Erorr_RouteIpAddress_is_not_correct";
+		}
+
+		// byteを符号無し整数に変換
+		// 負なら+256
+		int[] unsigned_b = new int[4];
+		for(int i=0;i<4;i++){
+			if(ip_address[i] >= 0){
+				// 0以上ならそのまま
+				unsigned_b[i] = ip_address[i];
+			}
+			else{
+				unsigned_b[i] = ip_address[i]+256;
+			}
+		}
+		return unsigned_b[0]+"."+unsigned_b[1]+"."+unsigned_b[2]+"."+unsigned_b[3];
+	}
+
+
+
+
 }

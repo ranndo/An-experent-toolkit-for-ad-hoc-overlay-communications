@@ -30,7 +30,9 @@ public class RouteManager implements Runnable {
 	public RouteManager(Handler handler_,EditText text_dest_port, EditText text_view_rec) throws IOException{
 		handler = handler_;
 		textDestPort = text_dest_port;
-		myAddress = new RREQ().getByteAddress(AODV_Activity.getIPAddress());
+		
+		StaticIpAddress sIp = new StaticIpAddress(AODV_Activity.context);
+		myAddress = sIp.getStaticIpByte();
 		text_view_received = text_view_rec;
 	}
 	

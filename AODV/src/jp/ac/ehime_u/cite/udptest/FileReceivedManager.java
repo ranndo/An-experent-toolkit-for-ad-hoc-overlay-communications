@@ -25,21 +25,21 @@ public class FileReceivedManager {
 	// 排他制御用 ArrayListに追加
 	public void add(){
 		synchronized(AODV_Activity.fileReceivedManagerLock){
-			UdpListener.file_received_manager.add(this);
+			AODV_Activity.receiveProcess.file_received_manager.add(this);
 		}
 	}
 	
 	// 排他制御用 ArrayListから取得
 	public FileReceivedManager get(int index){
 		synchronized(AODV_Activity.fileReceivedManagerLock){
-			return UdpListener.file_received_manager.get(index);
+			return AODV_Activity.receiveProcess.file_received_manager.get(index);
 		}
 	}
 	
 	// 排他制御用 ArrayListから削除
 	public void remove(int index){
 		synchronized(AODV_Activity.fileReceivedManagerLock){
-			UdpListener.file_received_manager.remove(index);
+			AODV_Activity.receiveProcess.file_received_manager.remove(index);
 		}
 	}
 	
@@ -47,7 +47,7 @@ public class FileReceivedManager {
 	// 宛先・ファイル名が呼び出し元(this)と一致する経過記録に上書き
 	public void set(int index){
 		synchronized(AODV_Activity.fileReceivedManagerLock){
-			UdpListener.file_received_manager.set(index, this);
+			AODV_Activity.receiveProcess.file_received_manager.set(index, this);
 		}
 	}
 }

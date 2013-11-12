@@ -16,6 +16,9 @@ public class RREP_ACK {
 	// 引数1: ACKを返す宛先ノードのアドレス
 	// 引数2: port番号
 	public void send(InetAddress destination_inet,int port){
+		send(destination_inet.getAddress(), port);
+	}
+	public void send(byte[] address,int port){
 
 		type = 4;
 		reserved = 0;
@@ -26,42 +29,7 @@ public class RREP_ACK {
 		send_buffer[0] = type;
 		send_buffer[1] = reserved;
 
-		// データグラムソケットを開く
-		DatagramSocket soc = null;
-		try {
-			soc = new DatagramSocket();
-		} catch (SocketException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		}
-		
-        // UDPパケットを送信する先となる前ホップノードのアドレス
-        InetSocketAddress remoteAddress =
-        			 new InetSocketAddress(destination_inet.getHostAddress(), port);
-        
-        // UDPパケット
-        DatagramPacket sendPacket = null;
-		try {
-			sendPacket = new DatagramPacket(send_buffer, send_buffer.length, remoteAddress);
-		} catch (SocketException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		}
-        
-        // DatagramSocketインスタンスを生成して、UDPパケットを送信
-        try {
-			soc.send(sendPacket);
-		} catch (SocketException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		} catch (IOException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		}
-        
+		SendByteArray.send(send_buffer, address);
         System.out.println("RREP_ACKメッセージを送信しました");	//###デバッグ用###
-        	
-        //データグラムソケットを閉じる
-        soc.close();
 	}
 }

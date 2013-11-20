@@ -415,13 +415,6 @@ public class ReceiveProcess {
 
 			// HELLOメッセージなら生存時間を延長するだけでよい(片方向リンク対応)
 			if(RRep.isHelloMessage(mesLength)){
-				handler.post(new Runnable() {
-					
-					@Override
-					public void run() {
-						editText.append("\nうむ…\n");
-					}
-				});
 				break;
 			}
 

@@ -31,14 +31,17 @@ import java.util.regex.Pattern;
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.ServiceConnection;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.database.sqlite.SQLiteDatabase;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Message;
 import android.os.RemoteException;
 import android.util.Log;
@@ -64,6 +67,8 @@ public class AODV_Activity extends Activity {
 	private EditText editTextDestPort;
 	private static EditText editTextToBeSent;
 	private EditText text_view_received;
+	
+	public static EditText testtext;
 
 	public static Context context;
 	
@@ -186,7 +191,8 @@ public class AODV_Activity extends Activity {
 		// 受信ログ用のTextView、同様にIDから取得
 		//final EditText text_view_received = (EditText) findViewById(R.id.textViewReceived);
 		text_view_received = (EditText) findViewById(R.id.textViewReceived);
-		
+		/********************************/
+		testtext = text_view_received;
 		context = this;
 		
 		// スレッドが起動中でなければ
@@ -785,21 +791,11 @@ public class AODV_Activity extends Activity {
             return true;
         case Menu.FIRST + 2:
         	// 簡易テスト用
-        	FileInputStream in;
-			try {
-				in = openFileInput("imagePacket.txt");
-	        	byte[] buffer = new byte[1024*64];
-	        	int size = in.read(buffer);
-	        	SendByteArray.send(buffer ,getByteAddress("192.168.10.141") ,size);
-	        	in.close();
-			} catch (FileNotFoundException e) {
-				// TODO 自動生成された catch ブロック
-				e.printStackTrace();
-			} catch (IOException e) {
-				// TODO 自動生成された catch ブロック
-				e.printStackTrace();
-			}
-
+            StringBuilder builder = new StringBuilder(1000);
+            for(int i=0;i<1000;i++)builder.append('b');
+            final String text = builder.toString();
+            editTextToBeSent.setText(text);
+            text_view_received.append(editTextToBeSent.getText().length()+"\n");
         
         	break;
         default:
@@ -1085,7 +1081,7 @@ public class AODV_Activity extends Activity {
 		//editTextToBeSent = (EditText)findViewById(R.id.editTextToBeSent);
 		final String text = editTextToBeSent.getText().toString();
 		int index;
-        
+		
 		try{
 			// 古すぎる送信データを削除
 			while( (index=searchLifeTimeEmpty()) != -1){
@@ -1305,14 +1301,36 @@ public class AODV_Activity extends Activity {
 	
 	// Log.d
 	public static void logD(String mes){
-		try {
-			FileOutputStream out = context.openFileOutput("LogD.txt",MODE_PRIVATE | MODE_APPEND);
-			out.write((mes+System.getProperty("line.separator")).getBytes());
-			out.close();
-		} catch (FileNotFoundException e) {
-			e.printStackTrace();
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
+//		try {
+//			FileOutputStream out = context.openFileOutput("LogD.txt",MODE_PRIVATE | MODE_APPEND);
+//			out.write((mes+System.getProperty("line.separator")).getBytes());
+//			out.close();
+//		} catch (FileNotFoundException e) {
+//			e.printStackTrace();
+//		} catch (IOException e) {
+//			e.printStackTrace();
+//		}
+	}
+	public static void logD(byte[] data){
+//		try {
+//			FileOutputStream out = context.openFileOutput("LogD.txt",MODE_PRIVATE | MODE_APPEND);
+//			out.write(data);
+//			out.close();
+//		} catch (FileNotFoundException e) {
+//			e.printStackTrace();
+//		} catch (IOException e) {
+//			e.printStackTrace();
+//		}
+	}
+	public static void logD(byte[] data,String name){
+//		try {
+//			FileOutputStream out = context.openFileOutput(name,MODE_PRIVATE | MODE_APPEND);
+//			out.write(data);
+//			out.close();
+//		} catch (FileNotFoundException e) {
+//			e.printStackTrace();
+//		} catch (IOException e) {
+//			e.printStackTrace();
+//		}
 	}
 }

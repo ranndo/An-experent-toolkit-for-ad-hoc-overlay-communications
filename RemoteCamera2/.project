@@ -30,4 +30,11 @@
 		<nature>com.android.ide.eclipse.adt.AndroidNature</nature>
 		<nature>org.eclipse.jdt.core.javanature</nature>
 	</natures>
+	<linkedResources>
+		<link>
+			<name>src/jp/ac/ehime_u/cite/udptest/StaticIpAddress.java</name>
+			<type>1</type>
+			<location>C:/eclipse/workspace/AODV/src/jp/ac/ehime_u/cite/udptest/StaticIpAddress.java</location>
+		</link>
+	</linkedResources>
 </projectDescription>

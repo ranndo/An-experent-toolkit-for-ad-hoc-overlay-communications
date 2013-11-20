@@ -4,7 +4,10 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.List;
+import java.util.Timer;
+import java.util.TimerTask;
 
+import jp.ac.ehime_u.cite.udptest.SendManager;
 import android.app.Activity;
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -20,6 +23,7 @@ import android.hardware.Camera.PictureCallback;
 import android.hardware.Camera.PreviewCallback;
 import android.hardware.Camera.ShutterCallback;
 import android.hardware.Camera.Size;
+import android.os.Debug;
 import android.os.Handler;
 import android.util.Log;
 import android.view.MotionEvent;
@@ -34,6 +38,10 @@ class CameraPreview extends SurfaceView implements SurfaceHolder.Callback {
 	private SurfaceHolder holder;
 	protected Camera camera;
 	int i;
+	int count;
+	protected int preview_width;
+	protected int preview_height;
+	protected int preview_format;
 
 	CameraPreview(Context context) {
 		super(context);
@@ -98,35 +106,105 @@ class CameraPreview extends SurfaceView implements SurfaceHolder.Callback {
 //			setPreviewSize(width, height);
 //			setPictureSize(2048,1536);	// 写真サイズ
 			camera.startPreview();
+			
+			preview_format = 0;
+			count = 0;
+			
 			camera.setPreviewCallback(new PreviewCallback() {
 				@Override
 				public void onPreviewFrame(byte[] data, Camera camera) {
 					Log.d("TEST", "onPreviewFrame: preview: data=" + data);
 
-					Parameters p = camera.getParameters();
-					Size size = p.getPreviewSize();
-					
-					Log.d("Size",size.width+":"+size.height);
-					i++;
-					if(i==100)i=0;
-//					new CompressThread(data,i,p.getPreviewFormat(),
-//							size.width,size.height,null,context).start();
-					try {
-						FileOutputStream f_out = null;
-						f_out = context.openFileOutput( "test"+i+".jpg"
-								,context.MODE_WORLD_READABLE | context.MODE_WORLD_WRITEABLE);
-						YuvImage yuvimage = new YuvImage(data,p.getPreviewFormat(),size.width,size.height,null);
-						yuvimage.compressToJpeg(new Rect(0,0,size.width,size.height), 80, f_out);
-						//f_out.write(data);
-					} catch (FileNotFoundException e1) {
-						// TODO 自動生成された catch ブロック
-						e1.printStackTrace();
-					} catch (IOException e) {
-						// TODO 自動生成された catch ブロック
-						e.printStackTrace();
+//					Parameters p = camera.getParameters();
+//					Size size = p.getPreviewSize();
+					if(preview_format == 0){
+						Parameters p = camera.getParameters();
+						preview_format = p.getPreviewFormat();
+						preview_width  = p.getPreviewSize().width;
+						preview_height = p.getPreviewSize().height;
+						Log.d("Format",""+preview_format);
 					}
+					
+					//Log.d("Size",size.width+":"+size.height);
+//					i++;
+/* 圧縮画像チェック.jpg */
+//					if(i==2000){
+//						camera.stopPreview();
+//						
+//						FileOutputStream f_out = null;
+//						try {
+//							YuvImage yuvimage = new YuvImage(data, preview_format, preview_width, preview_height,null);
+////							YuvImage yuvimage = new YuvImage(data, p.getPreviewFormat(), size.width, size.height,null);
+//							f_out = context.openFileOutput( "last"+i%100+".jpg"
+//									,Context.MODE_WORLD_READABLE | Context.MODE_WORLD_WRITEABLE);
+//				
+//							yuvimage.compressToJpeg(new Rect(0,0, preview_width, preview_height), CameraActivity.compress_ratio, f_out);
+////							yuvimage.compressToJpeg(new Rect(0,0, size.width, size.height), CameraActivity.compress_ratio, f_out);
+//							
+////							if(isYuv422())
+////								Log.d(getName(),"Yuv422" );
+////							else if(isYuv420())
+////								Log.d(getName(), "Yuv420");
+//						} catch (FileNotFoundException e) {
+//							// TODO 自動生成された catch ブロック
+//							e.printStackTrace();
+//						} finally {
+//							if(f_out != null){
+//								try {
+//									f_out.close();
+//								} catch (IOException e) {
+//									// TODO 自動生成された catch ブロック
+//									e.printStackTrace();
+//								}
+//							}
+//						}
+//					}
+					
+/* 1s間のトレーシング */
+//					if(i==31){
+//						Debug.startMethodTracing("/data/data/jp.ac.ehime_u.cite.remotecamera2/files/ossoi.trace");
+//						//i=1999;
+//					}
+//					i++;
+//					if(i==100)
+					new CompressThread(data, i, preview_format,
+							preview_width, preview_height, null, context).start();
+					
+/* 1s間のトレーシング */
+//					if(i==30){
+//						new Thread(new Runnable() {
+//							
+//							@Override
+//							public void run() {
+//								try {
+//									Thread.sleep(500);
+//									Debug.stopMethodTracing();
+//									Log.d("Count",""+count);
+//								} catch (InterruptedException e) {
+//									// TODO 自動生成された catch ブロック
+//									e.printStackTrace();
+//								}
+//							}
+//						}).start();
+//					}
 				}
 			});
+//			
+//			new Thread(new Runnable() {
+//				
+//				@Override
+//				public void run() {
+//					Timer timer = new Timer(false);
+//					timer.schedule(new TimerTask() {
+//						
+//						@Override
+//						public void run() {
+//							// 1sごとにonPreviewFrameのフレームレートをログる
+//							Log.d("FrameRate", Integer.toString(i));
+//						}
+//					}, 1000, 1000);
+//				}
+//			}).start();
 		}
 	}
 

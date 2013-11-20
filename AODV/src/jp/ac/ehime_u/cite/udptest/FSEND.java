@@ -47,44 +47,7 @@ public class FSEND {
 		System.arraycopy(file_name_b		  	,0,sendBuffer,13,file_name_b_length);
 		
 		// データグラムソケットを開く
-<<<<<<< HEAD
 		SendByteArray.send(sendBuffer, str.getAddress());
-=======
-		DatagramSocket soc = null;
-		try {
-			soc = new DatagramSocket();
-		} catch (SocketException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		}
-		
-        // UDPパケットを送信する先となる前ホップノードのアドレス
-        InetSocketAddress remoteAddress =
-        			 new InetSocketAddress(str.getHostAddress(), port);
-        
-        // UDPパケット
-        DatagramPacket sendPacket = null;
-		try {
-			sendPacket = new DatagramPacket(sendBuffer, sendBuffer.length, remoteAddress);
-		} catch (SocketException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		}
-        
-        // DatagramSocketインスタンスを生成して、UDPパケットを送信
-        try {
-			soc.send(sendPacket);
-		} catch (SocketException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		} catch (IOException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		}
-		
-        //データグラムソケットを閉じる
-        soc.close();
->>>>>>> master
 	}
 	
 	/****** メッセージタイプ 10 用メソッド ******/

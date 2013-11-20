@@ -83,28 +83,7 @@ public class FileManager {
 		file_next_no++;
 		
 		// 送信try
-<<<<<<< HEAD
 		SendByteArray.send(buffer, next_hop_address_b);
-=======
-		try {
-			// 送信先(次ホップ)情報
-			InetAddress next_hop_inet = InetAddress.getByAddress(next_hop_address_b);
-			InetSocketAddress destination_inet_socket_address = new InetSocketAddress(
-					next_hop_inet.getHostAddress(), port);
-			
-			// 送信パケットの生成
-			DatagramPacket packet_to_be_sent = new DatagramPacket(buffer,
-					buffer.length, destination_inet_socket_address);
-			// 送信用のクラスを生成、送信、クローズ
-			DatagramSocket datagram_socket = new DatagramSocket();
-			datagram_socket.send(packet_to_be_sent);
-			datagram_socket.close();
-		} catch (SocketException e1) {
-			e1.printStackTrace();
-		} catch (IOException e1) {
-			e1.printStackTrace();
-		}
->>>>>>> master
 	}
 	
 

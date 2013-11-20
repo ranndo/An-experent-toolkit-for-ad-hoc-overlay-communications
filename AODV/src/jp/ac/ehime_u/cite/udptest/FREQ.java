@@ -25,12 +25,9 @@ public class FREQ {
 	// ファイルパケット要求メッセージの送信
 	// 逐次確認プロトコルにおける受信側の応答
 	public void file_req(InetAddress str, byte[] soushinmoto,byte[] atesaki,int step_next_no,String file_str,int port) {
-<<<<<<< HEAD
 		file_req(str.getAddress(), soushinmoto, atesaki, step_next_no, file_str, port);
 	}
 	public void file_req(byte[] address, byte[] soushinmoto,byte[] atesaki,int step_next_no,String file_str,int port) {
-=======
->>>>>>> master
 		
 		/********************************************************
 		 * メッセージフォーマット
@@ -57,44 +54,7 @@ public class FREQ {
 		System.arraycopy(file_name_b		  	,0,sendBuffer,13,file_name_b_length);
 		
 		// データグラムソケットを開く
-<<<<<<< HEAD
 		SendByteArray.send(sendBuffer, address);
-=======
-		DatagramSocket soc = null;
-		try {
-			soc = new DatagramSocket();
-		} catch (SocketException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		}
-		
-        // UDPパケットを送信する先となる前ホップノードのアドレス
-        InetSocketAddress remoteAddress =
-        			 new InetSocketAddress(str.getHostAddress(), port);
-        
-        // UDPパケット
-        DatagramPacket sendPacket = null;
-		try {
-			sendPacket = new DatagramPacket(sendBuffer, sendBuffer.length, remoteAddress);
-		} catch (SocketException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		}
-        
-        // DatagramSocketインスタンスを生成して、UDPパケットを送信
-        try {
-			soc.send(sendPacket);
-		} catch (SocketException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		} catch (IOException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		}
-		
-        //データグラムソケットを閉じる
-        soc.close();
->>>>>>> master
 	}
 	
 	// メッセージが自分宛か？

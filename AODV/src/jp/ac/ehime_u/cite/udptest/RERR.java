@@ -35,49 +35,7 @@ public class RERR {
 		System.arraycopy(intToByte(SeqNum),0,sendBuffer,7,4);
 	
 		// データグラムソケットを開く
-<<<<<<< HEAD
 		SendByteArray.send(sendBuffer, atesaki);
-=======
-		DatagramSocket soc = null;
-		try {
-			soc = new DatagramSocket();
-		} catch (SocketException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		}
-		
-        // UDPパケットを送信する先となる前ホップノードのアドレス
-        InetSocketAddress remoteAddress = null;
-		try {
-			remoteAddress = new InetSocketAddress(InetAddress.getByAddress(atesaki).getHostAddress(), port);
-		} catch (UnknownHostException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		}
-        
-        // UDPパケット
-        DatagramPacket sendPacket = null;
-		try {
-			sendPacket = new DatagramPacket(sendBuffer, sendBuffer.length, remoteAddress);
-		} catch (SocketException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		}
-        
-        // DatagramSocketインスタンスを生成して、UDPパケットを送信
-        try {
-			new DatagramSocket().send(sendPacket);
-		} catch (SocketException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		} catch (IOException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		}
-        
-        //データグラムソケットを閉じる
-        soc.close();
->>>>>>> master
 		
 	}
 	
@@ -101,45 +59,7 @@ public class RERR {
 		System.arraycopy(IpAdd			  ,0,sendBuffer,3,4);
 		System.arraycopy(intToByte(SeqNum),0,sendBuffer,7,4);
 	
-<<<<<<< HEAD
 		SendByteArray.send(sendBuffer, SendByteArray.getByteAddress("255.255.255.255"));
-=======
-		// データグラムソケットを開く
-		DatagramSocket soc = null;
-		try {
-			soc = new DatagramSocket();
-		} catch (SocketException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		}
-		
-        // UDPパケットを送信する先となる前ホップノードのアドレス
-        InetSocketAddress remoteAddress =
-        			 new InetSocketAddress("255.255.255.255", port);
-        
-        // UDPパケット
-        DatagramPacket sendPacket = null;
-		try {
-			sendPacket = new DatagramPacket(sendBuffer, sendBuffer.length, remoteAddress);
-		} catch (SocketException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		}
-        
-        // DatagramSocketインスタンスを生成して、UDPパケットを送信
-        try {
-			new DatagramSocket().send(sendPacket);
-		} catch (SocketException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		} catch (IOException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		}
-        
-        //データグラムソケットを閉じる
-        soc.close();
->>>>>>> master
 		
 	}
 	

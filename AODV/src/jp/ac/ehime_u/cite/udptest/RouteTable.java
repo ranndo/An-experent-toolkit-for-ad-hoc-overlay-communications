@@ -11,11 +11,7 @@ public class RouteTable {
 	byte stateFlag;		// 他の状態フラグ（有効1,無効2,修復可能3,修復中4,一時的5)
 	
 	// ### ネットワークインタフェース ###
-<<<<<<< HEAD
 	boolean bluetoothFlag;
-=======
-	// ？？？
->>>>>>> master
 	
 	byte hopCount;		// ホップ数
 	byte[] nextIpAdd;	// 次ホップのIPアドレス
@@ -27,20 +23,13 @@ public class RouteTable {
 	/************** フィールドの要素ここまで ***************/
 	
 	// new用、list.add(new RouteTable(上記フィールドを埋める引数));で要素を追加できる
-<<<<<<< HEAD
 	public RouteTable(byte[] IP,int num,boolean numFlag,byte state,boolean bluetooth,
-=======
-	public RouteTable(byte[] IP,int num,boolean numFlag,byte state,
->>>>>>> master
 				byte hopNum,byte[] nextAdd,long time,HashSet<byte[]> list){
 		toIpAdd = IP;
 		toSeqNum = num;
 		validToSeqNumFlag = numFlag;
 		stateFlag = state;
-<<<<<<< HEAD
 		bluetoothFlag = bluetooth;
-=======
->>>>>>> master
 		hopCount = hopNum;
 		nextIpAdd = nextAdd;
 		lifeTime = time;

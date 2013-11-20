@@ -6,7 +6,10 @@
     <string name="menu_main">送信画面</string>
     <string name="menu_next">ルートテーブル</string>
     <string name="menu_finish">Activity終了</string>
+<<<<<<< HEAD
     <string name="Bluetooth">Bluetooth ON/OFF</string>
     <string name="bt_not_enabled_leaving">Bluetooth was not enabled. Leaving Bluetooth Chat.</string>
+=======
+>>>>>>> master
    
 </resources>

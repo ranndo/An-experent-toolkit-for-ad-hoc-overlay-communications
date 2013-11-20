@@ -57,9 +57,13 @@ public final class R {
         public static final int route=0x7f030002;
     }
     public static final class string {
+<<<<<<< HEAD
         public static final int Bluetooth=0x7f040005;
         public static final int app_name=0x7f040001;
         public static final int bt_not_enabled_leaving=0x7f040006;
+=======
+        public static final int app_name=0x7f040001;
+>>>>>>> master
         public static final int hello=0x7f040000;
         public static final int menu_finish=0x7f040004;
         public static final int menu_main=0x7f040002;

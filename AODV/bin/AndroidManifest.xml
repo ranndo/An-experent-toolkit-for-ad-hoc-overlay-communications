@@ -26,6 +26,8 @@
                 <data android:scheme="connect" />
 			</intent-filter>
 		</activity>
+		<receiver android:name=".BroadcastReceiver"
+		    android:exported="false" />
 		<activity android:name=".RouteActivity"></activity>
 		<service android:name=".AODV_Service">
 			<intent-filter>
@@ -35,6 +37,5 @@
 				<action android:name="jp.ac.ehime_u.cite.udptest.REMOTE_SERVICE" />
 			</intent-filter>
 		</service>
-		<service android:name=".BluetoothService"></service>
 	</application>
 </manifest>

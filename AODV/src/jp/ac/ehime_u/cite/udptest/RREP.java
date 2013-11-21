@@ -32,10 +32,10 @@ public class RREP {
 
 	// RREPメッセージの送信
 	// 引数：前ホップのノードのアドレス(InetAddress型),RREPのデータ（RREPの宛先ＩＰアドレスはRREPの送信元ＩＰアドレスだから)
-	public void reply(InetAddress str, byte[] soushinmoto,byte[] atesaki,int port,byte hopNum,int seq,int life) {
-		reply(str.getAddress(), soushinmoto, atesaki, port, hopNum, seq, life);
+	public void reply(InetAddress str, byte[] soushinmoto,byte[] atesaki,int port,byte hopNum,int seq,int life,AODV_Service binder) {
+		reply(str.getAddress(), soushinmoto, atesaki, port, hopNum, seq, life,binder);
 	}
-	public void reply(byte[] address, byte[] soushinmoto,byte[] atesaki,int port,byte hopNum,int seq,int life) {
+	public void reply(byte[] address, byte[] soushinmoto,byte[] atesaki,int port,byte hopNum,int seq,int life,final AODV_Service binder) {
 
 		// 各フィールドの初期化
 		type = 2;	// RREPを示す
@@ -69,15 +69,14 @@ public class RREP {
 		SendByteArray.send(sendBuffer, address);
 
         System.out.println("RREPメッセージを送信しました");	//###デバッグ用###
-		Date date_rrep = new Date();
-		SimpleDateFormat sdf_rrep = new SimpleDateFormat("yyyy/MM/dd kk:mm:ss SSS", Locale.JAPANESE);
-		LogDataBaseOpenHelper.insertLogTableAODV(AODV_Activity.log_db, 21, AODV_Activity.MyIP, AODV_Activity.getStringByByteAddress(soushinmoto),
-				AODV_Activity.getStringByByteAddress(atesaki), (int)newHopCount, toSeqNum, sdf_rrep.format(date_rrep), AODV_Activity.network_interface);
+        
+        binder.writeLog(21, binder.getMyIP(), AODV_Service.getStringByByteAddress(soushinmoto),
+        		AODV_Service.getStringByByteAddress(atesaki), (int)newHopCount, toSeqNum);
 
         final byte[] next_hop_address = address;
 
         // ACK要求リストに次ホップノードを追加
-        AODV_Activity.receiveProcess.ack_demand_list.add(next_hop_address);
+        binder.addAckDemand(next_hop_address);
 
 		// 一定時間後、RREP_ACKが戻ってこなければ片方向リンクと見なし
 		// BlackListにノードを追加する
@@ -88,22 +87,22 @@ public class RREP {
 				public void run() {
 					// 一定時間停止する
 					try {
-						Thread.sleep(2 * AODV_Activity.NODE_TRAVERSAL_TIME
-								* (1 + AODV_Activity.TIMEOUT_BUFFER));
+						Thread.sleep(2 * AODV_Service.NODE_TRAVERSAL_TIME
+								* (1 + AODV_Service.TIMEOUT_BUFFER));
 					} catch (InterruptedException e) {
 						e.printStackTrace();
 					}
 
 					// ack_demand_listに停止前に追加したアドレスが存在すれば
 					// RREP_ACKが戻ってきていないことを示す
-					if(AODV_Activity.receiveProcess.ack_demand_list.contains(next_hop_address)){
+					if(binder.containAckDemand(next_hop_address)){
 						// 片方向であることを示すBlackListに追加
-						AODV_Activity.receiveProcess.black_list.add(new BlackData(next_hop_address,
-								new Date().getTime() + AODV_Activity.BLACKLIST_TIMEOUT));
+						binder.addBlack(new BlackData(next_hop_address,
+								new Date().getTime() + AODV_Service.BLACKLIST_TIMEOUT));
 					}
 
 					// 要求リストから消しておく
-					AODV_Activity.receiveProcess.ack_demand_list.remove(next_hop_address);
+					binder.removeAckDemand(next_hop_address);
 				}
 			}).start();
 
@@ -120,7 +119,7 @@ public class RREP {
 	/***** RREPメッセージの転送 *****/
 
 	// 引数：受け取ったバイト配列，RREP転送先のＩＰアドレス
-	public void reply2(byte[] data, InetAddress lastNODE,int port){
+	public void reply2(byte[] data, InetAddress lastNODE,int port,final AODV_Service binder){
 
 		// ホップ数+1
 		data[3]++;
@@ -132,7 +131,7 @@ public class RREP {
         final byte[] next_hop_address = lastNODE.getAddress();
 
         // ACK要求リストに次ホップノードを追加
-        AODV_Activity.receiveProcess.ack_demand_list.add(next_hop_address);
+        binder.addAckDemand(next_hop_address);
 
 		// 一定時間後、RREP_ACKが戻ってこなければ片方向リンクと見なし
 		// BlackListにノードを追加する
@@ -143,22 +142,22 @@ public class RREP {
 				public void run() {
 					// 一定時間停止する
 					try {
-						Thread.sleep(2 * AODV_Activity.NODE_TRAVERSAL_TIME
-								* (1 + AODV_Activity.TIMEOUT_BUFFER));
+						Thread.sleep(2 * AODV_Service.NODE_TRAVERSAL_TIME
+								* (1 + AODV_Service.TIMEOUT_BUFFER));
 					} catch (InterruptedException e) {
 						e.printStackTrace();
 					}
 
 					// ack_demand_listに停止前に追加したアドレスが存在すれば
 					// RREP_ACKが戻ってきていないことを示す
-					if(AODV_Activity.receiveProcess.ack_demand_list.contains(next_hop_address)){
+					if(binder.containAckDemand(next_hop_address)){
 						// 片方向であることを示すBlackListに追加
-						AODV_Activity.receiveProcess.black_list.add(new BlackData(next_hop_address,
-								new Date().getTime() + AODV_Activity.BLACKLIST_TIMEOUT));
+						binder.addBlack(new BlackData(next_hop_address,
+								new Date().getTime() + AODV_Service.BLACKLIST_TIMEOUT));
 					}
 
 					// 要求リストから消しておく
-					AODV_Activity.receiveProcess.ack_demand_list.remove(next_hop_address);
+					binder.removeAckDemand(next_hop_address);
 				}
 			}).start();
 

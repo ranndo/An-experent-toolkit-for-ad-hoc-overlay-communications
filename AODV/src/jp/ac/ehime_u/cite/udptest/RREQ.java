@@ -10,48 +10,46 @@ import android.util.Log;
 
 public class RREQ {
 	// RREQメッセージのフィールド	以下[フォーマット上の位置(バイト)]、解説
-	byte type;		// [0] メッセージタイプ
-	byte flag;		// [1] 先頭5ビットのみフラグ(JRGDU)、残りは0
-					//	Joinフラグ：マルチキャスト用
-					//	Repairフラグ；マルチキャスト用
-					//	Gratuitous RREPフラグ : 宛先IPアドレスフィールドによって指定されたノードへ、Gratuitous RREPをユニキャストするかどうかを示す
-					//	Destination Onlyフラグ : 宛先ノードだけがこのRREQに対して返信することを示す
-					//	未知シーケンス番号 : 宛先シーケンス番号が知られていないことを示す
-	byte reserved;	// [2] 予約済み：0として送信され、使用しない
-	byte hopCount;	// [3] ホップ数
-	int RREQ_ID;	// [4-7] 送信元ノードのIPアドレスとともに受信した時、RREQを識別するためのシーケンス番号
-	byte[] toIpAdd;		// [8-11] あて先ノードのIPアドレス
-	int toSeqNum;		// [12-15] 宛先ノードへの経路において、送信元ノードによって過去の受信した最新のシーケンス番号
-	byte[] fromIpAdd;	// [16-19] 送信元ノードのIPアドレス
-	int fromSeqNum;		// [20-23] 送信元ノードへの経路において利用される現在のシーケンス番号
-	int timeToLive;		// [24-27] 生存時間TTL、中間ノードを残りいくつまで許すか
-	String message;		// [28-??]*通常では使用しない。ブロードキャストメッセージの場合、メッセージを付加
+//	byte type;		// [0] メッセージタイプ
+//	byte flag;		// [1] 先頭5ビットのみフラグ(JRGDU)、残りは0
+//					//	Joinフラグ：マルチキャスト用
+//					//	Repairフラグ；マルチキャスト用
+//					//	Gratuitous RREPフラグ : 宛先IPアドレスフィールドによって指定されたノードへ、Gratuitous RREPをユニキャストするかどうかを示す
+//					//	Destination Onlyフラグ : 宛先ノードだけがこのRREQに対して返信することを示す
+//					//	未知シーケンス番号 : 宛先シーケンス番号が知られていないことを示す
+//	byte reserved;	// [2] 予約済み：0として送信され、使用しない
+//	byte hopCount;	// [3] ホップ数
+//	int RREQ_ID;	// [4-7] 送信元ノードのIPアドレスとともに受信した時、RREQを識別するためのシーケンス番号
+//	byte[] toIpAdd;		// [8-11] あて先ノードのIPアドレス
+//	int toSeqNum;		// [12-15] 宛先ノードへの経路において、送信元ノードによって過去の受信した最新のシーケンス番号
+//	byte[] fromIpAdd;	// [16-19] 送信元ノードのIPアドレス
+//	int fromSeqNum;		// [20-23] 送信元ノードへの経路において利用される現在のシーケンス番号
+//	int timeToLive;		// [24-27] 生存時間TTL、中間ノードを残りいくつまで許すか
+//	String message;		// [28-??]*通常では使用しない。ブロードキャストメッセージの場合、メッセージを付加
 
 	// RREQメッセージの送信
 	// 引数：送信先(String型)
-	public void send(byte[] destination_address, byte[] myAddress, boolean flagJ ,boolean flagR ,boolean flagG ,boolean flagD ,boolean flagU
-			,int toSeq ,int fromSeq,int ID,int TTL,int port,String text) {
+	public static void send(byte[] destination_address, byte[] myAddress, boolean flagJ ,boolean flagR ,boolean flagG ,boolean flagD ,boolean flagU
+			,int toSeq ,int fromSeq,int ID,int TTL,int port,String text,AODV_Service binder) {
 
 		// 各フィールドの初期化
-		type = 1;	// RREQを示す
+		byte type = 1;	// RREQを示す
 		// 各フラグを1バイトの先頭5ビットに納める
-		flag =	(byte)(((flagJ)? (2<<6):0)	// 10000000
+		byte flag =	(byte)(((flagJ)? (2<<6):0)	// 10000000
 				|((flagR)? (2<<5):0)		// 01000000
 				|((flagG)? (2<<4):0)		// 00100000
 				|((flagD)? (2<<3):0)		// 00010000
 				|((flagU)? (2<<2):0));		// 00001000
-		reserved = 0;
-		hopCount = 0;
+		byte reserved = 0;
+		byte hopCount = 0;
 
-		RREQ_ID = ID;
+		int RREQ_ID = ID;
 
-		toIpAdd  = destination_address;
-		toSeqNum = toSeq;
+		int toSeqNum = toSeq;
 
-		fromIpAdd = myAddress;
-		fromSeqNum = fromSeq;
-		timeToLive = TTL;
-		message = text;
+		int fromSeqNum = fromSeq;
+		int timeToLive = TTL;
+		String message = text;
 		byte[] message_b = null;
 		boolean bload_cast_flag = false;
 
@@ -59,7 +57,7 @@ public class RREQ {
 		byte[] sendBuffer = null;
 
 		// 最終宛先がブロードキャストアドレスなら
-		if( Arrays.equals(getByteAddress(AODV_Activity.BLOAD_CAST_ADDRESS), destination_address)){
+		if( Arrays.equals(getByteAddress(AODV_Service.BLOAD_CAST_ADDRESS), destination_address)){
 			message_b = message.getBytes();
 			sendBuffer = new byte[28+message_b.length];
 			bload_cast_flag = true;
@@ -73,9 +71,9 @@ public class RREQ {
 		sendBuffer[2] = reserved;
 		sendBuffer[3] = hopCount;
 		System.arraycopy(intToByte(RREQ_ID)   ,0,sendBuffer,4 ,4);
-		System.arraycopy(toIpAdd			  ,0,sendBuffer,8 ,4);
+		System.arraycopy(destination_address  ,0,sendBuffer,8 ,4);
 		System.arraycopy(intToByte(toSeqNum)  ,0,sendBuffer,12,4);
-		System.arraycopy(fromIpAdd			  ,0,sendBuffer,16,4);
+		System.arraycopy(myAddress			  ,0,sendBuffer,16,4);
 		System.arraycopy(intToByte(fromSeqNum),0,sendBuffer,20,4);
 		System.arraycopy(intToByte(timeToLive),0,sendBuffer,24,4);
 
@@ -86,15 +84,11 @@ public class RREQ {
 		SendByteArray.send(sendBuffer, SendByteArray.getByteAddress("255.255.255.255"));
 
         System.out.println("RREQメッセージを送信しました");	//###デバッグ用###
-        
-		Date date_rint = new Date();
-		SimpleDateFormat sdf_rint = new SimpleDateFormat("yyyy/MM/dd kk:mm:ss SSS", Locale.JAPANESE);
-		LogDataBaseOpenHelper.insertLogTableAODV(AODV_Activity.log_db, 11, AODV_Activity.MyIP, AODV_Activity.MyIP,
-				getStringByByteAddress(destination_address), 0, fromSeqNum, sdf_rint.format(date_rint), AODV_Activity.network_interface);
+        binder.writeLog(11,getStringByByteAddress(myAddress),getStringByByteAddress(myAddress),getStringByByteAddress(destination_address), 0,fromSeqNum);
 	}
 
 	/***** RREQメッセージの転送 *****/
-	public void send2(byte[] data,int port){
+	public static void send2(byte[] data,int port){
 
 		SendByteArray.send(data, SendByteArray.getByteAddress("255.255.255.255"), 28);
 
@@ -103,7 +97,7 @@ public class RREQ {
 
 	// 受信したRREQメッセージが自身のノード宛のものか調べる
 	// 引数：RREQメッセージ
-	public boolean isToMe(byte[] receiveBuffer, byte[] myAddress){
+	public static boolean isToMe(byte[] receiveBuffer, byte[] myAddress){
 		// 宛先IPアドレスのコピー先を作成
 		byte[] toIpAdd = new byte[4];
 
@@ -116,41 +110,41 @@ public class RREQ {
 	}
 
 	// RREQメッセージからJフィールドを返す
-	public boolean getFlagJ(byte[] RREQMes){
+	public static boolean getFlagJ(byte[] RREQMes){
 		if( (RREQMes[1]&(2<<6)) ==1)
 			return true;
 		else return false;
 	}
 	// RREQメッセージからRフィールドを返す
-	public boolean getFlagR(byte[] RREQMes){
+	public static boolean getFlagR(byte[] RREQMes){
 		if( (RREQMes[1]&(2<<5)) ==1)
 			return true;
 		else return false;
 	}
 	// RREQメッセージからGフィールドを返す
-	public boolean getFlagG(byte[] RREQMes){
+	public static boolean getFlagG(byte[] RREQMes){
 		if( (RREQMes[1]&(2<<4)) ==1)
 			return true;
 		else return false;
 	}
 	// RREQメッセージからDフィールドを返す
-	public boolean getFlagD(byte[] RREQMes){
+	public static boolean getFlagD(byte[] RREQMes){
 		if( (RREQMes[1]&(2<<3)) ==1)
 			return true;
 		else return false;
 	}
 	// RREQメッセージからUフィールドを返す
-	public boolean getFlagU(byte[] RREQMes){
+	public static boolean getFlagU(byte[] RREQMes){
 		if( (RREQMes[1]&(2<<2)) ==1)
 			return true;
 		else return false;
 	}
 	// RREQメッセージからhopCountフィールドを返す
-	public byte getHopCount(byte[] RREQMes){
+	public static byte getHopCount(byte[] RREQMes){
 		return RREQMes[3];
 	}
 	// RREQメッセージからRREQ_IDフィールドを返す
-	public int getRREQ_ID(byte[] RREQMes){
+	public static int getRREQ_ID(byte[] RREQMes){
 
 		// 該当部分のbyte[]を抜き出し
 		byte[] buf = new byte[4];
@@ -160,7 +154,7 @@ public class RREQ {
 		return byteToInt(buf);
 	}
 	// RREQメッセージからtoIpAddフィールドを返す
-	public byte[] getToIpAdd(byte[] RREQMes){
+	public static byte[] getToIpAdd(byte[] RREQMes){
 
 		// 該当部分のbyte[]を抜き出し
 		byte[] buf = new byte[4];
@@ -169,7 +163,7 @@ public class RREQ {
 		return buf;
 	}
 	// RREQメッセージからtoSeqNumフィールドを返す
-	public int getToSeqNum(byte[] RREQMes){
+	public static int getToSeqNum(byte[] RREQMes){
 
 		// 該当部分のbyte[]を抜き出し
 		byte[] buf = new byte[4];
@@ -179,7 +173,7 @@ public class RREQ {
 		return byteToInt(buf);
 	}
 	// RREQメッセージからfromoIpAddフィールドを返す
-	public byte[] getFromIpAdd(byte[] RREQMes){
+	public static byte[] getFromIpAdd(byte[] RREQMes){
 
 		// 該当部分のbyte[]を抜き出し
 		byte[] buf = new byte[4];
@@ -188,7 +182,7 @@ public class RREQ {
 		return buf;
 	}
 	// RREQメッセージからfromSeqNumフィールドを返す
-	public int getFromSeqNum(byte[] RREQMes){
+	public static int getFromSeqNum(byte[] RREQMes){
 
 		// 該当部分のbyte[]を抜き出し
 		byte[] buf = new byte[4];
@@ -198,7 +192,7 @@ public class RREQ {
 		return byteToInt(buf);
 	}
 	// RREQメッセージからTTLフィールドを返す
-	public int getTimeToLive(byte[] RREQMes){
+	public static int getTimeToLive(byte[] RREQMes){
 
 		// 該当部分のbyte[]を抜き出し
 		byte[] buf = new byte[4];
@@ -208,7 +202,7 @@ public class RREQ {
 		return byteToInt(buf);
 	}
 	// RREQメッセージからメッセージフィールドを返す
-	public byte[] getMessage(byte[] RREQMes, int length){
+	public static byte[] getMessage(byte[] RREQMes, int length){
 
 		// 該当部分のbyte[]を抜き出し
 		byte[] buf = new byte[length-28];
@@ -219,7 +213,7 @@ public class RREQ {
 	}
 
 	// RREQメッセージの送信元シーケンス番号フィールドをセットして返す
-	public byte[] setFromSeqNum(byte[] RREQMes,int num){
+	public static byte[] setFromSeqNum(byte[] RREQMes,int num){
 		// 変更する番号をbyte[]型に
 		byte[] seq = intToByte(num);
 
@@ -228,7 +222,7 @@ public class RREQ {
 		return RREQMes;
 	}
 	// RREQメッセージのTTLをセットして返す
-	public byte[] setTimeToLive(byte[] RREQMes,int num){
+	public static byte[] setTimeToLive(byte[] RREQMes,int num){
 		// 変更する番号をbyte[]型に
 		byte[] TTL = intToByte(num);
 
@@ -238,7 +232,7 @@ public class RREQ {
 	}
 
 	// int型をbyte[]型へ変換
-	public byte[] intToByte(int num){
+	public static byte[] intToByte(int num){
 
 		// バイト配列への出力を行うストリーム
 		ByteArrayOutputStream bout = new ByteArrayOutputStream();
@@ -258,7 +252,7 @@ public class RREQ {
 	}
 
 	// byte[]型をint型へ変換
-	public int byteToInt(byte[] num){
+	public static int byteToInt(byte[] num){
 
 		int value = 0;
 		// バイト配列の入力を行うストリーム
@@ -276,7 +270,7 @@ public class RREQ {
 	}
 
 	// String型のアドレスをbyte[]型に変換
-	public byte[] getByteAddress(String str){
+	public static byte[] getByteAddress(String str){
 
 		// 分割
 		String[] s_bara = str.split("\\.");

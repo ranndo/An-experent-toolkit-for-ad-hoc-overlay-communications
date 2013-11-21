@@ -31,9 +31,11 @@ import java.util.regex.Pattern;
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.database.sqlite.SQLiteDatabase;
@@ -72,94 +74,31 @@ public class AODV_Activity extends Activity {
 
 	public static Context context;
 	
-	// 受信処理クラス
-	public static ReceiveProcess receiveProcess;
+	private BroadcastReceiverAODV_Activity receiver = new BroadcastReceiverAODV_Activity();
 
-	// スレッド
-	private static Thread udpListenerThread; // 受信スレッド
-	private static Thread routeManagerThread; // ルート監視スレッド
-	public static boolean timer_stop = false;	//ExpandingRingSerchを終了するためのもの
 
-	// ルートテーブル
-	protected static ArrayList<RouteTable> routeTable = new ArrayList<RouteTable>();
-
-	// PATH_DISCOVERY_TIMEの間に受信したRREQの送信元とIDを記録
-	public static ArrayList<PastData> receiveRREQ_List = new ArrayList<PastData>();
-
-	// データベースへ様々な情報を記録
-	public static SQLiteDatabase log_db;
-	public static String MyIP;
-	public static String network_interface;
-
-	// マルチスレッドの排他制御用オブジェクト
-	public static Object routeLock = new Object();
-	public static Object pastDataLock = new Object();
-	public static Object fileManagerLock = new Object();
-	public static Object fileReceivedManagerLock = new Object();
 	
-	// Bluetooth関連
-    // Local Bluetooth adapter
-    private BluetoothAdapter mBluetoothAdapter = null;
-    // Member object for the chat services
-    public static BluetoothChatService mChatService = null;
-    
-    // Message types sent from the BluetoothChatService Handler
-    // DEVICE_???? is KEY_STRING
-    public static final String DEVICE_NAME = "device_name";
-    public static final String DEVICE_ADDRESS = "device_address";
-    public static final String DEVICE_THREAD_NO = "device_thread";
-    public static final int BLUETOOTH_MAX_SLAVE = 7;
-    public static final int MESSAGE_STATE_CHANGE = 1;
-    public static final int MESSAGE_READ = 2;
-    public static final int MESSAGE_WRITE = 3;
-    public static final int MESSAGE_DEVICE_NAME = 4;
-    public static final int MESSAGE_TOAST = 5;
-    // Intent request codes
-    private static final int REQUEST_CONNECT_DEVICE = 1;
-    private static final int REQUEST_ENABLE_BT = 2;
 
-	// その他変数
-	public static int RREQ_ID = 0;
-	public static int seqNum = 0;
-	public static boolean do_BroadCast = false; // 一定時間内に何かﾌﾞﾛｰﾄﾞｷｬｽﾄしたかどうか
 
-	// ファイル送信
-	public static ArrayList<FileManager> file_manager = new ArrayList<FileManager>();
+
+
+
+
+
+
+	
+
+
+
+
+
+
 
 	// インテントの多重処理制御
 	private static String prev_receive_package_name = null;
 	private static int prev_receive_intent_id = -1;
 
-	// 様々なパラメータのデフォルト値を宣言
-	public static final int ACTIVE_ROUTE_TIMEOUT = 3000; // [ms]
-	public static final int ALLOWED_HELLO_LOSS = 2;
-	public static final int HELLO_INTERVAL = 1000; // [ms]
-	public static final int DELETE_PERIOD = (ACTIVE_ROUTE_TIMEOUT >= HELLO_INTERVAL) ? 5 * ACTIVE_ROUTE_TIMEOUT
-			: 5 * HELLO_INTERVAL;
-	public static final int LOCAL_ADD_TTL = 2;
-	public static final int MY_ROUTE_TIMEOUT = 2 * ACTIVE_ROUTE_TIMEOUT;
-	public static final int NET_DIAMETER = 35;
-	public static final int MAX_REPAIR_TTL = (int) (0.3 * NET_DIAMETER);
-	public static int MIN_REPAIR_TTL = -1; // 宛先ノードへ知られている最新のホップ数
-	public static final int NODE_TRAVERSAL_TIME = 40; // [ms]
-	public static final int NET_TRAVERSAL_TIME = 2 * NODE_TRAVERSAL_TIME
-			* NET_DIAMETER;
-	public static final int NEXT_HOP_WAIT = NODE_TRAVERSAL_TIME + 10;
-	public static final int PATH_DISCOVERY_TIME = 2 * NET_TRAVERSAL_TIME;
-	public static final int PERR_RATELIMIT = 10;
-	public static final int RREQ_RETRIES = 2;
-	public static final int RREQ_RATELIMIT = 10;
-	public static final int BLACKLIST_TIMEOUT = RREQ_RETRIES * NET_TRAVERSAL_TIME;
-	public static final int TIMEOUT_BUFFER = 2;
-	public static final int TTL_START = 1;
-	public static final int TTL_INCREMENT = 2;
-	public static final int TTL_THRESHOLD = 7;
-	public static int TTL_VALUE = 1; // IPヘッダ内の"TTL"フィールドの値
-	public static int RING_TRAVERSAL_TIME = 2 * NODE_TRAVERSAL_TIME
-			* (TTL_VALUE + TIMEOUT_BUFFER);
-	public static int MAX_SEND_FILE_SIZE = 63*1024;
-	public static int MAX_RESEND = 5;
-	public static String BLOAD_CAST_ADDRESS = "255.255.255.255";
+
 
 	/** Called when the activity is first created. */
 	@Override
@@ -186,7 +125,6 @@ public class AODV_Activity extends Activity {
 
 		StaticIpAddress sIp = new StaticIpAddress(this);
 		editTextSrc.setText(sIp.getStaticIp());
-		MyIP = sIp.getStaticIp();
 
 		// 受信ログ用のTextView、同様にIDから取得
 		//final EditText text_view_received = (EditText) findViewById(R.id.textViewReceived);
@@ -195,37 +133,8 @@ public class AODV_Activity extends Activity {
 		testtext = text_view_received;
 		context = this;
 		
-		// スレッドが起動中でなければ
-		if( udpListenerThread == null ){
-			try {
-				// 受信スレッドのインスタンスを作成
-				UdpListener udp_listener = new UdpListener(new Handler(),
-						text_view_received, 12345, 100, getApplicationContext());
-				// スレッドを取得
-				udpListenerThread = new Thread(udp_listener);
-			} catch (SocketException e1) {
-				e1.printStackTrace();
-			}
-			// 受信スレッドrun()
-			udpListenerThread.start();
-		}
-		
-		receiveProcess = new ReceiveProcess(new Handler(),
-						text_view_received, 12345, 100, getApplicationContext());
 
-		if( routeManagerThread == null){
-			// 経路監視スレッドのインスタンスを作成
-			try {
-				RouteManager route_manager = new RouteManager(new Handler(),
-						editTextDestPort,text_view_received);
-				// スレッドを取得
-				routeManagerThread = new Thread(route_manager);
-			} catch (IOException e2) {
-				e2.printStackTrace();
-			}
-			// 監視スレッドrun()
-			routeManagerThread.start();
-		}
+
 
 
 		// ファイルオープン、同様にIDから取得しクリックイベントを追加
@@ -694,6 +603,13 @@ public class AODV_Activity extends Activity {
 		_dlgSelectFile = new SelectFileDialog(context,new Handler(),editTextToBeSent);
 		_dlgSelectFile.Show("/data/data/jp.ac.ehime_u.cite.udptest/files/");
 	}
+	
+	@Override
+	public void onStart() {
+		super.onStart();
+		IntentFilter filter = new IntentFilter(getString(R.string.AODV_ActivityReceiver));
+		registerReceiver(receiver, filter);
+	}
 
 	@Override
 	public void onPause()
@@ -703,6 +619,12 @@ public class AODV_Activity extends Activity {
 
 		super.onPause();
 	}
+	
+	@Override
+	public void onStop() {
+		super.onStop();
+		unregisterReceiver(receiver);
+	}
 
 	public void onDestroy(){
 		if (mChatService != null){
@@ -710,6 +632,19 @@ public class AODV_Activity extends Activity {
 		}
 		
 		super.onDestroy();
+	}
+	
+	// Service->Android 通信用
+	public class BroadcastReceiverAODV_Activity extends BroadcastReceiver {
+
+		@Override
+		public void onReceive(Context context, Intent intent) {
+			// TODO 自動生成されたメソッド・スタブ
+			String mes = intent.getStringExtra(context.getString(R.string.AODV_ActivityKey));
+			text_view_received.append(mes);
+			text_view_received.setSelection(text_view_received.getText().toString().length());
+		}
+
 	}
 
 
@@ -922,109 +857,7 @@ public class AODV_Activity extends Activity {
 		}
 	}
 
-	// ルートテーブル中のi番目の要素を返す、排他制御
-	public static RouteTable getRoute(int index) {
-		synchronized (routeLock) {
-			return routeTable.get(index);
-		}
-	}
 
-	// ルートテーブルに要素を追加する、排他制御
-	public static void addRoute(RouteTable route) {
-		synchronized (routeLock) {
-			routeTable.add(route);
-
-			// 時刻取得
-			Date date = new Date();
-			SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd kk:mm:ss SSS", Locale.JAPANESE);
-			LogDataBaseOpenHelper.insertLogTableROUTE(log_db, 10001, MyIP, getStringByByteAddress(route.toIpAdd), (int)route.hopCount, route.toSeqNum
-					, getStringByByteAddress(route.nextIpAdd), (int)route.stateFlag, (int)route.lifeTime, sdf.format(date), network_interface);
-		}
-//		if(RunRouteActivity){
-//			RouteActivity.addRoute_sql(route.toIpAdd, route.hopCount
-//					, route.lifeTime - new Date().getTime(), route.stateFlag);
-//		}
-	}
-
-	// ルートテーブルの要素を削除する、排他制御
-	public static void removeRoute(int index) {
-//		if(RunRouteActivity){
-//			RouteActivity.removeRoute_sql(getRoute(index).toIpAdd);
-//		}
-		synchronized (routeLock) {
-			RouteTable route = routeTable.get(index);
-			// 時刻取得
-			Date date = new Date();
-			SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd kk:mm:ss SSS", Locale.JAPANESE);
-
-			LogDataBaseOpenHelper.insertLogTableROUTE(log_db, 10003, MyIP, getStringByByteAddress(route.toIpAdd), (int)route.hopCount, route.toSeqNum
-					, getStringByByteAddress(route.nextIpAdd), (int)route.stateFlag, (int)route.lifeTime, sdf.format(date), network_interface);
-			routeTable.remove(index);
-
-		}
-
-	}
-
-	// ルートテーブルの要素を上書きする、排他制御
-	public static void setRoute(int index, RouteTable route) {
-		synchronized (routeLock) {
-			RouteTable pre_route = routeTable.get(index);
-			// 時刻取得
-			Date date = new Date();
-			SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd kk:mm:ss SSS", Locale.JAPANESE);
-
-			// 経路変更前と後を記録
-			LogDataBaseOpenHelper.insertLogTableROUTE(log_db, 10002, MyIP, getStringByByteAddress(pre_route.toIpAdd), (int)pre_route.hopCount, pre_route.toSeqNum
-					, getStringByByteAddress(pre_route.nextIpAdd), (int)pre_route.stateFlag, (int)pre_route.lifeTime, sdf.format(date), network_interface);
-
-			routeTable.set(index, route);
-
-			LogDataBaseOpenHelper.insertLogTableROUTE(log_db, 10002, MyIP, getStringByByteAddress(route.toIpAdd), (int)route.hopCount, route.toSeqNum
-					, getStringByByteAddress(route.nextIpAdd), (int)route.stateFlag, (int)route.lifeTime, sdf.format(date), network_interface);
-		}
-//		if(RunRouteActivity){
-//			RouteActivity.setRoute_sql();
-//		}
-	}
-
-	// RouteTable(list)に宛先アドレス(Add)が含まれていないか検索する
-	// 戻り値：リスト内で発見した位置、インデックス
-	// 見つからない場合 -1を返す
-	public static int searchToAdd(byte[] Add) {
-
-		synchronized (routeLock) {
-			for (int i = 0; i < routeTable.size(); i++) {
-				if (Arrays.equals((routeTable.get(i).toIpAdd), Add)) {
-					return i;
-				}
-			}
-		}
-
-		return -1;
-	}
-
-	// 短い間のRREQ受信履歴中に、引数のID,アドレスのものが無いか検索
-	public static boolean RREQ_ContainCheck(int ID, byte[] Add) {
-
-		synchronized (pastDataLock) {
-			for (int i = 0; i < receiveRREQ_List.size(); i++) {
-				if ((ID == receiveRREQ_List.get(i).RREQ_ID)
-						&& Arrays.equals(Add, receiveRREQ_List.get(i).IpAdd)) {
-					return true;
-				}
-			}
-		}
-		return false;
-	}
-
-	// 同時に参照が起こらないよう、リストに追加するメソッド
-	public static void newPastRReq(int IDnum, byte[] FromIpAdd) {
-
-		synchronized (pastDataLock) {
-			receiveRREQ_List.add(new PastData(IDnum, FromIpAdd, new Date()
-					.getTime() + PATH_DISCOVERY_TIME));
-		}
-	}
 
 
 	// 送信textの先頭に、AODVとは無関係であるメッセージタイプ0を挿入する
@@ -1082,106 +915,106 @@ public class AODV_Activity extends Activity {
 		final String text = editTextToBeSent.getText().toString();
 		int index;
 		
-		try{
-			// 古すぎる送信データを削除
-			while( (index=searchLifeTimeEmpty()) != -1){
-				try {
-					AODV_Activity.file_manager.get(index).file_in.close();
-				} catch (IOException e) {
-					e.printStackTrace();
-				}
-				try {
-					AODV_Activity.file_manager.get(index).file.close();
-				} catch (IOException e) {
-					e.printStackTrace();
-				}
-				AODV_Activity.file_manager.remove(index);
-			}
-			// ファイルが送信中なら送信中止
-			if(searchProgress(text, destination_address_b) != null){
-				Log.d("FILE_SEND","this_file_sending_now");
-			}
-			else{
-				// ファイルオープン
-				FileManager	files = new FileManager(text, destination_address_b,
-							source_address_b, context_);
-
-				// Log.d 開始時間
-				Date date = new Date();
-				SimpleDateFormat sdf = new SimpleDateFormat("MMdd'_'HHmmss");
-
-				String log = "time:"+sdf.format(date);
-				Log.d("SEND_T",log);
-
-				// 分割パケットの最初の１つを送信
-				files.fileSend(source_address_b, destination_next_hop_address_b, destination_port);
-
-				// 過程を保持 *分割後,パケットが1つのみでも再送が有りうるので必要*
-				files.add();
-
-				// タイムアウトを起動
-				final int time = 2 * NODE_TRAVERSAL_TIME * (hop_count + TIMEOUT_BUFFER);
-				final int step = files.file_next_no;
-				final byte[] data = files.buffer;
-				final byte[] dest_next_hop_add = destination_next_hop_address_b;
-				final int port_ = destination_port;
-				final String name = files.file_name;
-				final byte[] dest_add = files.destination_address;
-
-				final Handler mHandler = new Handler();
-
-				try {
-					new Thread(new Runnable() {
-
-						int wait_time = time;
-						int resend_count = 0;
-						int prev_step = step;
-						byte[] buffer = data;
-						byte[] destination_next_hop_address_b = dest_next_hop_add;
-						int port = port_;
-						String file_name = name;
-						byte[] destination_address = dest_add;
-
-						// 再送処理
-						public void run() {
-							timer: while (true) {
-
-								mHandler.post(new Runnable() {
-									public void run() {
-										SendByteArray.send(buffer, destination_next_hop_address_b);
-									}
-
-								});
-								// 指定の時間停止する
-								try {
-									Thread.sleep(wait_time);
-								} catch (InterruptedException e) {
-								}
-
-								resend_count++;
-
-								// ループを抜ける処理
-								if (resend_count == MAX_RESEND) {
-									break timer;
-								}
-								FileManager files = searchProgress(file_name, destination_address);
-								if(files == null){
-									break timer;
-								}
-								else{
-									if( files.file_next_no != prev_step){
-										break timer;
-									}
-								}
-
-							}
-						}
-					}).start();
-				} catch (Exception e) {
-					e.printStackTrace();
-				}
-			}
-		} catch (FileNotFoundException e){
+//		try{
+//			// 古すぎる送信データを削除
+//			while( (index=searchLifeTimeEmpty()) != -1){
+//				try {
+//					AODV_Activity.file_manager.get(index).file_in.close();
+//				} catch (IOException e) {
+//					e.printStackTrace();
+//				}
+//				try {
+//					AODV_Activity.file_manager.get(index).file.close();
+//				} catch (IOException e) {
+//					e.printStackTrace();
+//				}
+//				AODV_Activity.file_manager.remove(index);
+//			}
+//			// ファイルが送信中なら送信中止
+//			if(searchProgress(text, destination_address_b) != null){
+//				Log.d("FILE_SEND","this_file_sending_now");
+//			}
+//			else{
+//				// ファイルオープン
+//				FileManager	files = new FileManager(text, destination_address_b,
+//							source_address_b, context_);
+//
+//				// Log.d 開始時間
+//				Date date = new Date();
+//				SimpleDateFormat sdf = new SimpleDateFormat("MMdd'_'HHmmss");
+//
+//				String log = "time:"+sdf.format(date);
+//				Log.d("SEND_T",log);
+//
+//				// 分割パケットの最初の１つを送信
+//				files.fileSend(source_address_b, destination_next_hop_address_b, destination_port);
+//
+//				// 過程を保持 *分割後,パケットが1つのみでも再送が有りうるので必要*
+//				files.add();
+//
+//				// タイムアウトを起動
+//				final int time = 2 * NODE_TRAVERSAL_TIME * (hop_count + TIMEOUT_BUFFER);
+//				final int step = files.file_next_no;
+//				final byte[] data = files.buffer;
+//				final byte[] dest_next_hop_add = destination_next_hop_address_b;
+//				final int port_ = destination_port;
+//				final String name = files.file_name;
+//				final byte[] dest_add = files.destination_address;
+//
+//				final Handler mHandler = new Handler();
+//
+//				try {
+//					new Thread(new Runnable() {
+//
+//						int wait_time = time;
+//						int resend_count = 0;
+//						int prev_step = step;
+//						byte[] buffer = data;
+//						byte[] destination_next_hop_address_b = dest_next_hop_add;
+//						int port = port_;
+//						String file_name = name;
+//						byte[] destination_address = dest_add;
+//
+//						// 再送処理
+//						public void run() {
+//							timer: while (true) {
+//
+//								mHandler.post(new Runnable() {
+//									public void run() {
+//										SendByteArray.send(buffer, destination_next_hop_address_b);
+//									}
+//
+//								});
+//								// 指定の時間停止する
+//								try {
+//									Thread.sleep(wait_time);
+//								} catch (InterruptedException e) {
+//								}
+//
+//								resend_count++;
+//
+//								// ループを抜ける処理
+//								if (resend_count == MAX_RESEND) {
+//									break timer;
+//								}
+//								FileManager files = searchProgress(file_name, destination_address);
+//								if(files == null){
+//									break timer;
+//								}
+//								else{
+//									if( files.file_next_no != prev_step){
+//										break timer;
+//									}
+//								}
+//
+//							}
+//						}
+//					}).start();
+//				} catch (Exception e) {
+//					e.printStackTrace();
+//				}
+//			}
+//		} catch (FileNotFoundException e){
 			// ファイルが開けない場合
 			// **********テキストメッセージ:type0として送信*********
 
@@ -1191,39 +1024,39 @@ public class AODV_Activity extends Activity {
 
 			// 送信try
 			SendByteArray.send(buffer, destination_next_hop_address_b);
-		}
+//		}
 
 
 	}
 
 	// ファイル名,宛先が等しい経過を返す
 	// 存在しない場合はnullを返す
-	public static FileManager searchProgress(String name,byte[] dest_add){
-		synchronized(AODV_Activity.fileManagerLock){
-			for(int i=0; i<AODV_Activity.file_manager.size();i++){
-				if( name.equals(AODV_Activity.file_manager.get(i).file_name)
-						&& Arrays.equals(dest_add, AODV_Activity.file_manager.get(i).destination_address)){
-					return AODV_Activity.file_manager.get(i);
-				}
-			}
-
-			return null;
-		}
-	}
+//	public static FileManager searchProgress(String name,byte[] dest_add){
+//		synchronized(AODV_Activity.fileManagerLock){
+//			for(int i=0; i<AODV_Activity.file_manager.size();i++){
+//				if( name.equals(AODV_Activity.file_manager.get(i).file_name)
+//						&& Arrays.equals(dest_add, AODV_Activity.file_manager.get(i).destination_address)){
+//					return AODV_Activity.file_manager.get(i);
+//				}
+//			}
+//
+//			return null;
+//		}
+//	}
 
 	// 生存時間が寿命であるindexを返す
 	// 存在しない場合は-1
-	public static int searchLifeTimeEmpty(){
-		synchronized(AODV_Activity.fileManagerLock){
-			long now = new Date().getTime();
-			for(int i=0; i<AODV_Activity.file_manager.size();i++){
-				if( AODV_Activity.file_manager.get(i).life_time < now ){
-					return i;
-				}
-			}
-			return -1;
-		}
-	}
+//	public static int searchLifeTimeEmpty(){
+//		synchronized(AODV_Activity.fileManagerLock){
+//			long now = new Date().getTime();
+//			for(int i=0; i<AODV_Activity.file_manager.size();i++){
+//				if( AODV_Activity.file_manager.get(i).life_time < now ){
+//					return i;
+//				}
+//			}
+//			return -1;
+//		}
+//	}
 
 	// IPアドレス(byte配列)から文字列(例:"127.0.0.1")へ変換
 	public static String getStringByByteAddress(byte[] ip_address){

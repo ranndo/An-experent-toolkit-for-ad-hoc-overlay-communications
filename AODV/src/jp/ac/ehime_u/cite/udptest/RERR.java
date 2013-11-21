@@ -63,6 +63,30 @@ public class RERR {
 		
 	}
 	
+	public void RERR_Sender(RouteTable route,int port){
+		// precursorListの全アドレスにRERRの送信
+		if(route.preList.size()==1){
+			// 伝えるノードが1つだけである場合
+			Iterator<byte[]> it = route.preList.iterator();
+			byte[] atesaki = it.next();
+			// RERRをユニキャスト
+			try {
+				send(false, route.nextIpAdd, route.toSeqNum, atesaki, port);
+			} catch (Exception ex4) {
+				ex4.printStackTrace();
+			}
+		}
+		else if(route.preList.size()>2){
+			// 伝えるノードが複数である場合
+			// RERRをブロードキャスト
+			try {
+				send(false, route.nextIpAdd, route.toSeqNum, port);
+			} catch (Exception ex5) {
+				ex5.printStackTrace();
+			}
+		}
+	}
+	
 	// RERRメッセージからIpAddフィールドを返す
 	public byte[] getIpAdd(byte[] RERRMes){
 		

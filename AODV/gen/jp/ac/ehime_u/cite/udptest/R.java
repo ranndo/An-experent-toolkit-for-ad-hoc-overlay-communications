@@ -57,6 +57,8 @@ public final class R {
         public static final int route=0x7f030002;
     }
     public static final class string {
+        public static final int AODV_ActivityKey=0x7f040008;
+        public static final int AODV_ActivityReceiver=0x7f040007;
         public static final int Bluetooth=0x7f040005;
         public static final int app_name=0x7f040001;
         public static final int bt_not_enabled_leaving=0x7f040006;

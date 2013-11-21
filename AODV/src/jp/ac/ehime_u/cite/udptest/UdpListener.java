@@ -36,44 +36,43 @@ import android.widget.ScrollView;
 
 public class UdpListener implements Runnable {
 
-	Handler handler;
 	Context context;
-	EditText editText;
 
 	// 受信用の配列やパケットなど
 	private byte[] buffer = new byte[64*1024];
 	private int port;
 	private DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
 	private DatagramSocket socket;
+	private ReceiveProcess receiveProcess;
 
 	// コンストラクタ
 	// 引数1:Handler	メインスレッドのハンドル(Handlerを使うことでUIスレッドの持つキューにジョブ登録ができる)
 	// 引数2:TextView	受信結果を表示するTextView
 	// 引数3:port_		ポート番号(受信)
 	// 引数4:max_packets 記録する最大パケット数(受信可能回数)
-	public UdpListener(Handler handler_, EditText edit_text,
-			int port_, int max_packets, Context context_) throws SocketException {
+	public UdpListener(int port_, Context context_) throws SocketException {
 		port = port_;
 		socket = new DatagramSocket(port);
-		handler = handler_;
-		editText = edit_text;
 		context = context_;
+		receiveProcess = new ReceiveProcess(port_, context_);
 	}
 
 	@Override
 	public void run() {
-	label: while (true) {
+		while (true) {
 			try {
 				socket.receive(packet); // blocking
 
 				// 受信したデータを抽出	received_dataをreceiveBufferに変更したよ
 				byte[] receiveBuffer = cut_byte_spare(packet.getData() ,packet.getLength());
 				
-				AODV_Activity.receiveProcess.process(receiveBuffer, packet.getAddress().getAddress(), false);
+				receiveProcess.process(receiveBuffer, packet.getAddress().getAddress(), false);
 				
 			} catch (IOException e) {
 
 				e.printStackTrace();
+			} finally{
+				receiveProcess.stop();
 			}
 		}
 	}

@@ -15,15 +15,24 @@ import java.net.InetSocketAddress;
 import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Timer;
+import java.util.TimerTask;
+
+import com.example.intenttester_s.AODV_Service;
 
 import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.bluetooth.BluetoothAdapter;
 import android.content.Context;
 import android.content.Intent;
+import android.database.sqlite.SQLiteDatabase;
 import android.os.Binder;
 import android.os.Handler;
 import android.os.IBinder;
@@ -39,7 +48,96 @@ import android.widget.Toast;
  */
 public class AODV_Service extends Service
 {
-
+	// スレッド
+	private Thread udpListenerThread;	// 受信スレッド
+	private Thread routeManagerThread;	// ルート監視スレッド
+	private boolean timer_stop = false;	//ExpandingRingSerchを終了するためのもの
+	
+	// ルートテーブル
+	private ArrayList<RouteTable> routeTable = new ArrayList<RouteTable>();
+	
+	// PATH_DISCOVERY_TIMEの間に受信したRREQの送信元とIDを記録
+	private ArrayList<PastData> receiveRREQ_List = new ArrayList<PastData>();
+	
+	// 片方向リンク排除用アドレス一覧
+	public ArrayList<BlackData> black_list = new ArrayList<BlackData>();
+	public HashSet<byte[]> ack_demand_list = new HashSet<byte[]> ();
+	
+	// データベースへ様々な情報を記録
+	private SQLiteDatabase log_db;
+	private String MyIP;
+	private String network_interface;
+	
+	// マルチスレッドの排他制御用オブジェクト
+	public Object routeLock = new Object();
+	public Object pastDataLock = new Object();
+	public Object blackListLock = new Object();
+	public Object ackDemandListLock = new Object();
+	public Object fileManagerLock = new Object();
+	public Object fileReceivedManagerLock = new Object();
+	
+	// Bluetooth関連
+    // Local Bluetooth adapter
+    private BluetoothAdapter mBluetoothAdapter = null;
+    // Member object for the chat services
+    private BluetoothChatService mChatService = null;
+    
+    // Message types sent from the BluetoothChatService Handler
+    // DEVICE_**** is KEY_STRING
+    public static final String DEVICE_NAME = "device_name";
+    public static final String DEVICE_ADDRESS = "device_address";
+    public static final String DEVICE_THREAD_NO = "device_thread";
+    public static final int BLUETOOTH_MAX_SLAVE = 7;
+    public static final int MESSAGE_STATE_CHANGE = 1;
+    public static final int MESSAGE_READ = 2;
+    public static final int MESSAGE_WRITE = 3;
+    public static final int MESSAGE_DEVICE_NAME = 4;
+    public static final int MESSAGE_TOAST = 5;
+    // Intent request codes
+    private static final int REQUEST_CONNECT_DEVICE = 1;
+    private static final int REQUEST_ENABLE_BT = 2;
+	// 様々なパラメータのデフォルト値を宣言
+	public static final int ACTIVE_ROUTE_TIMEOUT = 3000; // [ms]
+	public static final int ALLOWED_HELLO_LOSS = 2;
+	public static final int HELLO_INTERVAL = 1000; // [ms]
+	public static final int DELETE_PERIOD = (ACTIVE_ROUTE_TIMEOUT >= HELLO_INTERVAL) ? 5 * ACTIVE_ROUTE_TIMEOUT
+			: 5 * HELLO_INTERVAL;
+	public static final int LOCAL_ADD_TTL = 2;
+	public static final int MY_ROUTE_TIMEOUT = 2 * ACTIVE_ROUTE_TIMEOUT;
+	public static final int NET_DIAMETER = 35;
+	public static final int MAX_REPAIR_TTL = (int) (0.3 * NET_DIAMETER);
+	public static int MIN_REPAIR_TTL = -1; // 宛先ノードへ知られている最新のホップ数
+	public static final int NODE_TRAVERSAL_TIME = 40; // [ms]
+	public static final int NET_TRAVERSAL_TIME = 2 * NODE_TRAVERSAL_TIME
+			* NET_DIAMETER;
+	public static final int NEXT_HOP_WAIT = NODE_TRAVERSAL_TIME + 10;
+	public static final int PATH_DISCOVERY_TIME = 2 * NET_TRAVERSAL_TIME;
+	public static final int PERR_RATELIMIT = 10;
+	public static final int RREQ_RETRIES = 2;
+	public static final int RREQ_RATELIMIT = 10;
+	public static final int BLACKLIST_TIMEOUT = RREQ_RETRIES * NET_TRAVERSAL_TIME;
+	public static final int TIMEOUT_BUFFER = 2;
+	public static final int TTL_START = 1;
+	public static final int TTL_INCREMENT = 2;
+	public static final int TTL_THRESHOLD = 7;
+	public static int TTL_VALUE = 1; // IPヘッダ内の"TTL"フィールドの値
+	public static int RING_TRAVERSAL_TIME = 2 * NODE_TRAVERSAL_TIME
+			* (TTL_VALUE + TIMEOUT_BUFFER);
+	public static int MAX_SEND_FILE_SIZE = 63*1024;
+	public static int MAX_RESEND = 5;
+	public static String BLOAD_CAST_ADDRESS = "255.255.255.255";
+    
+	// その他変数
+	private int RREQ_ID = 0;
+	private int seqNum = 0;
+	private boolean do_BroadCast = false; // 一定時間内に何かﾌﾞﾛｰﾄﾞｷｬｽﾄしたかどうか
+	
+    
+	// ファイル送信
+	private ArrayList<FileManager> file_manager = new ArrayList<FileManager>();
+	
+	
+	
     /**
      * サービスの定期実行の間隔をミリ秒で指定。
      * 処理が終了してから次に呼ばれるまでの時間。
@@ -363,15 +461,23 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 
 	};
 
+	// 自身を返すBinder
+	public class AODV_ServiceBinder extends Binder{
+		AODV_Service getService(){
+			return AODV_Service.this;
+		}
+	}
+	
     @Override
     public IBinder onBind(Intent intent) {
         return mBinder;
     }
-
-
-    // ---------- サービスのライフサイクル -----------
-
-
+    
+	@Override
+	public boolean onUnbind(Intent intent){
+		return true;
+	}
+	
     /**
      * 常駐を開始
      */
@@ -385,22 +491,50 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 //    }
 **/
 
+	@Override
+	public void onCreate() {
+		//Log.d("service","oncreate");
+		StaticIpAddress sIp = new StaticIpAddress(this);
+		MyIP = sIp.getStaticIp();
+		
+		// スレッドが起動中でなければ
+		if( udpListenerThread == null ){
+			try {
+				// 受信スレッドのインスタンスを作成
+				UdpListener udp_listener = new UdpListener(12345, this);
+				// スレッドを取得
+				udpListenerThread = new Thread(udp_listener);
+			} catch (SocketException e1) {
+				e1.printStackTrace();
+			}
+			// 受信スレッドrun()
+			udpListenerThread.start();
+		}
+		
+		if( routeManagerThread == null){
+			// 経路監視スレッドのインスタンスを作成
+			try {
+				RouteManager route_manager = new RouteManager(12345);
+				// スレッドを取得
+				routeManagerThread = new Thread(route_manager);
+			} catch (IOException e2) {
+				e2.printStackTrace();
+			}
+			// 監視スレッドrun()
+			routeManagerThread.start();
+		}
+
+	}
 
     @Override
-    public void onStart(Intent intent, int startId) {
-
-        // サービス起動時の処理。
-        // サービス起動中に呼ぶと複数回コールされ得る。しかし二重起動はしない
-        // @see http://d.hatena.ne.jp/rso/20110911
-
-        super.onStart(intent, startId);
-
-        // タスクを実行
-//        execTask();
-
-        // NOTE: ここで次回の実行計画を逐次的にコールしていない理由は，
-        // タスクが非同期の場合があるから。
+    public int onStartCommand(Intent intent, int flags,int startId) {
+    	return START_NOT_STICKY;
     }
+    
+	@Override
+	public void onDestroy() {
+		// Toast.makeText(this, "service done", Toast.LENGTH_SHORT).show();
+	}
 
 	// IPアドレス(byte配列)から文字列(例:"127.0.0.1")へ変換
 	public static String getStringByByteAddress(byte[] ip_address){
@@ -475,7 +609,255 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 		return b_bara;
 	}
 
+	/*
+	 * ReceiveProcess関係の仕事代行
+	 */
+	// RREQの受信履歴の中で、古すぎるアドレスの削除
+	public void removeOldRREQ_List(){
+		if( !receiveRREQ_List.isEmpty() ){	// 空でなければ
+			// リストの中で最も古いのは先頭の項目、その生存時間をチェック
+			synchronized (pastDataLock) {
+				if(receiveRREQ_List.get(0).lifeTime < new Date().getTime() ){
+					receiveRREQ_List.remove(0);
+				}
+			}
+		}
+	}
+	// 短い間のRREQ受信履歴中に、引数のID,アドレスのものが無いか検索
+	public boolean RREQ_ContainCheck(int ID, byte[] Add) {
 
+		synchronized (pastDataLock) {
+			for (int i = 0; i < receiveRREQ_List.size(); i++) {
+				if ((ID == receiveRREQ_List.get(i).RREQ_ID)
+						&& Arrays.equals(Add, receiveRREQ_List.get(i).IpAdd)) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+	// 同時に参照が起こらないよう、リストに追加するメソッド
+	public void newPastRReq(int IDnum, byte[] FromIpAdd) {
+
+		synchronized (pastDataLock) {
+			receiveRREQ_List.add(new PastData(IDnum, FromIpAdd, new Date()
+					.getTime() + PATH_DISCOVERY_TIME));
+		}
+	}
+	// RouteTable(list)に宛先アドレス(Add)が含まれていないか検索する
+	// 戻り値：リスト内で発見した位置、インデックス
+	// 見つからない場合 -1を返す
+	public int searchToAdd(byte[] Add) {
+		synchronized (routeLock) {
+			for (int i = 0; i < routeTable.size(); i++) {
+				if (Arrays.equals((routeTable.get(i).toIpAdd), Add)) {
+					return i;
+				}
+			}
+		}
+		return -1;
+	}
+	// seqNum
+	public int getSeqNum(){
+		return seqNum;
+	}
+	public void setSeqNum(int i){
+		seqNum = i;
+	}
+	// do_BroadCast
+	public boolean getDoBroadcast(){
+		return do_BroadCast;
+	}
+	public void setDoBroadcast(boolean b){
+		do_BroadCast = b;
+	}
+	// RREQ_ID
+	public int getRREQ_ID(){
+		return RREQ_ID;
+	}
+	public void setRREQ_ID(int id){
+		RREQ_ID = id;
+	}
+	// MyIp(String)
+	public String getMyIP(){
+		return MyIP;
+	}
+	/*
+	 * RouteTable関連の仕事代行
+	 */
+	// ルートテーブル中のi番目の要素を返す、排他制御
+	public RouteTable getRoute(int index) {
+		synchronized (routeLock) {
+			return routeTable.get(index);
+		}
+	}
+	// ルートテーブルに要素を追加する、排他制御
+	public void addRoute(RouteTable route) {
+		synchronized (routeLock) {
+			routeTable.add(route);
+
+			// 時刻取得
+			Date date = new Date();
+			SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd kk:mm:ss SSS", Locale.JAPANESE);
+			LogDataBaseOpenHelper.insertLogTableROUTE(log_db, 10001, MyIP, getStringByByteAddress(route.toIpAdd), (int)route.hopCount, route.toSeqNum
+					, getStringByByteAddress(route.nextIpAdd), (int)route.stateFlag, (int)route.lifeTime, sdf.format(date), network_interface);
+		}
+	}
+	// ルートテーブルの要素を削除する、排他制御
+	public void removeRoute(int index) {
+		synchronized (routeLock) {
+			RouteTable route = routeTable.get(index);
+			// 時刻取得
+			Date date = new Date();
+			SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd kk:mm:ss SSS", Locale.JAPANESE);
+
+			LogDataBaseOpenHelper.insertLogTableROUTE(log_db, 10003, MyIP, getStringByByteAddress(route.toIpAdd), (int)route.hopCount, route.toSeqNum
+					, getStringByByteAddress(route.nextIpAdd), (int)route.stateFlag, (int)route.lifeTime, sdf.format(date), network_interface);
+			routeTable.remove(index);
+		}
+	}
+	// ルートテーブルの要素を上書きする、排他制御
+	public void setRoute(int index, RouteTable route) {
+		synchronized (routeLock) {
+			RouteTable pre_route = routeTable.get(index);
+			// 時刻取得
+			Date date = new Date();
+			SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd kk:mm:ss SSS", Locale.JAPANESE);
+
+			// 経路変更前と後を記録
+			LogDataBaseOpenHelper.insertLogTableROUTE(log_db, 10002, MyIP, getStringByByteAddress(pre_route.toIpAdd), (int)pre_route.hopCount, pre_route.toSeqNum
+					, getStringByByteAddress(pre_route.nextIpAdd), (int)pre_route.stateFlag, (int)pre_route.lifeTime, sdf.format(date), network_interface);
+
+			routeTable.set(index, route);
+
+			LogDataBaseOpenHelper.insertLogTableROUTE(log_db, 10002, MyIP, getStringByByteAddress(route.toIpAdd), (int)route.hopCount, route.toSeqNum
+					, getStringByByteAddress(route.nextIpAdd), (int)route.stateFlag, (int)route.lifeTime, sdf.format(date), network_interface);
+		}
+	}
+	// ルートテーブルの要素数を得る
+	public int getRouteSize(){
+		return routeTable.size();
+	}
+	
+	// ACK要求リストに要素を追加する、排他制御
+	public void addAckDemand(byte[] ip){
+		synchronized(ackDemandListLock){
+			ack_demand_list.add(ip);
+		}
+	}
+	// ACK要求リストに要素が含まれているか見る、排他制御
+	public boolean containAckDemand(byte[] ip){
+		synchronized(ackDemandListLock){
+			return ack_demand_list.contains(ip);
+		}
+	}
+	// ACK要求リストから要素を削除する、排他制御
+	public void removeAckDemand(byte[] ip){
+		synchronized(ackDemandListLock){
+			ack_demand_list.remove(ip);
+		}
+	}
+	
+	// Blackリストに要素を追加する、排他制御
+	public void addBlack(BlackData d){
+		synchronized(blackListLock){
+			black_list.add(d);
+		}
+	}
+	public int getBlackListSize(){
+		synchronized(blackListLock){
+			return black_list.size();
+		}
+	}
+	public BlackData getBlackData(int index){
+		synchronized(blackListLock){
+			return black_list.get(index);
+		}
+	}
+	public void removeBlackData(int index){
+		synchronized(blackListLock){
+			black_list.remove(index);
+		}
+	}
+	
+	// 経路の自動修復
+	public void localRepair(RouteTable route, final int port, byte[] myAdd,final AODV_Service mAODV_Service){
+		
+		// ***** RREQの送信 *****
+		int TTL = MIN_REPAIR_TTL + LOCAL_ADD_TTL;
+		
+		route.toSeqNum++;
+		RREQ_ID++;
+		seqNum++;
+		
+		// 自分が送信したパケットを受信しないようにIDを登録
+		newPastRReq(RREQ_ID, myAdd);
+		
+		do_BroadCast = true;
+		
+		try {
+			RREQ.send(route.toIpAdd, myAdd
+					, false, false, false, false, false
+					, route.toSeqNum, seqNum, RREQ_ID, TTL, port, null, mAODV_Service);
+		} catch (Exception ex3) {
+			ex3.printStackTrace();
+		}
+		
+		// 経路探索期間が過ぎた後、経路が修復されたかチェック
+		long waitTime = 2 * AODV_Service.NODE_TRAVERSAL_TIME * (TTL + AODV_Service.TIMEOUT_BUFFER);
+		final byte[] toIp = route.toIpAdd;
+		final RouteTable route_f = route;
+		
+		Timer mTimer = new Timer(true);
+		mTimer.schedule( new TimerTask(){
+				@Override
+				public void run(){
+					int index = searchToAdd(toIp);
+					
+					// 経路が追加されていて、かつホップ数が修復前以下なら、修復完了
+					// それ以外の場合、RERRを送信する
+					if(index == -1){
+						new RERR().RERR_Sender(route_f,port);
+						
+						final byte[] destination_address = route_f.toIpAdd;
+						mAODV_Service.appendMessageOnActivity(AODV_Service.getStringByByteAddress(destination_address)+" disconnected\n");
+					}
+					else{
+						// ホップ数が増加した場合
+						if(getRoute(index).hopCount > route_f.hopCount){
+							new RERR().RERR_Sender(route_f,port);
+						}
+					}
+				}
+			}, waitTime);
+	}
+	/*
+	 * Activity関連の仕事代行（代行する必要ないけど...）
+	 * Activityのメッセージ表示欄に表示してほしいStringを送りつける。
+	 * Activityが起動していない場合、届かずにスルーされる？
+	 */
+	public void appendMessageOnActivity(String mes){
+		Intent intent = new Intent(this.getString(R.string.AODV_ActivityReceiver));
+		intent.putExtra(this.getString(R.string.AODV_ActivityKey), mes);
+		sendBroadcast(intent);
+	}
+	
+	/*
+	 * LogDataBase関連の仕事代行
+	 */
+	public void writeLog(int type,String myIp,String sourceIp,String destinationAddress,int hopCount, int fromSeqNum){
+		Date date_rint = new Date();
+		SimpleDateFormat sdf_rint = new SimpleDateFormat("yyyy/MM/dd kk:mm:ss SSS", Locale.JAPANESE);
+		LogDataBaseOpenHelper.insertLogTableAODV(log_db, type, myIp, sourceIp,
+				destinationAddress, hopCount, fromSeqNum, sdf_rint.format(date_rint), network_interface);
+	}
+	public void writeLogData(int type,String myIp,String sourceIp,String destinationAddress,int dataLength, String appName){
+		Date date_rint = new Date();
+		SimpleDateFormat sdf_rint = new SimpleDateFormat("yyyy/MM/dd kk:mm:ss SSS", Locale.JAPANESE);
+		LogDataBaseOpenHelper.insertLogTableDATA(log_db, type, myIp, sourceIp,
+				destinationAddress, dataLength, appName, sdf_rint.format(date_rint), network_interface);
+	}
+	
     /**
      * サービスの次回の起動を予約
      */

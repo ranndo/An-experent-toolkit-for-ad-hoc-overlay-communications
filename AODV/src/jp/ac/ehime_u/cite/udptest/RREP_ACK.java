@@ -9,19 +9,19 @@ import java.util.*;
 public class RREP_ACK {
 
 	// フォーマット [数字]はバイト列中の位置を示す
-	byte type;		// [0] 4:RREP_ACKを示す
-	byte reserved;	// [1] 空バイト,使用されない(拡張用)
+//	byte type;		// [0] 4:RREP_ACKを示す
+//	byte reserved;	// [1] 空バイト,使用されない(拡張用)
 
 	// RREP_ACKの送信
 	// 引数1: ACKを返す宛先ノードのアドレス
 	// 引数2: port番号
-	public void send(InetAddress destination_inet,int port){
+	public static void send(InetAddress destination_inet,int port){
 		send(destination_inet.getAddress(), port);
 	}
-	public void send(byte[] address,int port){
+	public static void send(byte[] address,int port){
 
-		type = 4;
-		reserved = 0;
+		byte type = 4;
+		byte reserved = 0;
 
 		// 送信バイト列
 		byte[] send_buffer = new byte[2];

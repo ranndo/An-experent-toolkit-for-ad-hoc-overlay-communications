@@ -19,98 +19,105 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.ServiceConnection;
 import android.net.Uri;
 import android.os.Handler;
+import android.os.IBinder;
 import android.util.Log;
 import android.widget.EditText;
 import android.widget.ScrollView;
 
 public class ReceiveProcess {
 	// 受信した情報を操作するためインスタンス化しておく
-	public static RREQ RReq = new RREQ();
 	public static RREP RRep = new RREP();
 	public static RERR RErr = new RERR();
-	public static FSEND FSend = new FSEND();
-	public static FREQ FReq = new FREQ();
+//	public static FSEND FSend = new FSEND();
+//	public static FREQ FReq = new FREQ();
 
 
 	// 受信したメッセージの内容を表す
 	boolean bload_cast_flag;
 
-	Handler handler;
 	Context context;
-	EditText editText;
-	ScrollView scrollView;
 
 	// 受信用の配列やパケットなど
 	private int port;
 	private byte[] my_address;
+	
+	// Serviceとの連携用変数
+	private AODV_Service mAODV_Service;
+	private boolean bindState;
 
 	// ファイル受信
-	public static ArrayList<FileReceivedManager> file_received_manager = new ArrayList<FileReceivedManager>();
+//	public static ArrayList<FileReceivedManager> file_received_manager = new ArrayList<FileReceivedManager>();
 
 	// インテント制御用ID
 	private static int send_intent_id = 0;
-
-	// 片方向リンク排除用アドレス一覧
-	public static ArrayList<BlackData> black_list = new ArrayList<BlackData>();
-	public static HashSet<byte[]> ack_demand_list = new HashSet<byte[]> ();
 	
-	public ReceiveProcess(Handler handler_, EditText edit_text,
-			int port_, int max_packets, Context context_){
+	public ReceiveProcess(int port_, Context context_){
 		port = port_;
-		handler = handler_;
-		editText = edit_text;
 		context = context_;
 		
 		StaticIpAddress sIp = new StaticIpAddress(context_);
 		my_address = sIp.getStaticIpByte();
+		
+		bindState = false;
+		context.bindService( new Intent( context, AODV_Service.class), connection, Context.BIND_AUTO_CREATE);
+
 	}
+	public void stop(){
+		if(bindState == true){
+			context.unbindService(connection);
+		}
+	}
+	
+	// コネクション生成
+	private ServiceConnection connection = new ServiceConnection() {
+		
+		@Override
+		public void onServiceDisconnected(ComponentName name) {
+			// TODO 自動生成されたメソッド・スタブ
+			mAODV_Service = null;
+			bindState = false;
+		}
+		
+		@Override
+		public void onServiceConnected(ComponentName name, IBinder service) {
+			// TODO 自動生成されたメソッド・スタブ
+			mAODV_Service = ((AODV_Service.AODV_ServiceBinder)service).getService();
+			bindState = true;
+		}
+	};
 	
 	// 受信処理
 	public void process(byte[] receiveBuffer,byte[] preHopAddress, boolean bluetoothFlag){
+		if(!bindState)return;
 		
 		bload_cast_flag = false;
 		
 		Log.d("debug_receive","length:"+receiveBuffer.length);
-		AODV_Activity.logD("debug_receive length:"+receiveBuffer.length);
-		
-		final byte r = receiveBuffer[0];
-		handler.post(new Runnable() {
-			
-			@Override
-			public void run() {
-				editText.append(""+r);
-			}
-		});
 		
 		switch (receiveBuffer[0]) {
 
 		case 1:	// RREQ
 			// RREQの受信履歴の中で、古すぎるアドレスの削除
-			if( !AODV_Activity.receiveRREQ_List.isEmpty() ){	// 空でなければ
-				// リストの中で最も古いのは先頭の項目、その生存時間をチェック
-				synchronized (AODV_Activity.pastDataLock) {
-					if(AODV_Activity.receiveRREQ_List.get(0).lifeTime < new Date().getTime() ){
-						AODV_Activity.receiveRREQ_List.remove(0);
-					}
-				}
-			}
+			mAODV_Service.removeOldRREQ_List();
 
 			// 受信履歴リストの中の情報と、RREQ_ID,送信元が一致すればメッセージを無視
-			if( AODV_Activity.RREQ_ContainCheck( RReq.getRREQ_ID(receiveBuffer), RReq.getFromIpAdd(receiveBuffer))){
+			if( mAODV_Service.RREQ_ContainCheck( RREQ.getRREQ_ID(receiveBuffer), RREQ.getFromIpAdd(receiveBuffer))){
 				// "重複したRREQメッセージのため無視します\n");
 				break;
 			}
 
 			// さらに、BlackListに対しても同様に古すぎるアドレスの削除
-			if( !black_list.isEmpty() ){	// 空でなければ
+			if( mAODV_Service.getBlackListSize() > 0 ){	// 空でなければ
 				// 各生存時間をチェック
-				for(int i=0;i<black_list.size();i++){
-					if(black_list.get(i).life_time < new Date().getTime()){
-						black_list.remove(i);
+				for(int i=0;i<mAODV_Service.getBlackListSize();i++){
+					if(mAODV_Service.getBlackData(i).life_time < new Date().getTime()){
+						mAODV_Service.removeBlackData(i);
 					}
 				}
 			}
@@ -125,26 +132,24 @@ public class ReceiveProcess {
 			receiveBuffer[3]++;
 
 			// DBへ記録
-			Date date_rreq = new Date();
-			SimpleDateFormat sdf_rreq = new SimpleDateFormat("yyyy/MM/dd kk:mm:ss SSS", Locale.JAPANESE);
-			LogDataBaseOpenHelper.insertLogTableAODV(AODV_Activity.log_db, 13, AODV_Activity.MyIP, AODV_Activity.getStringByByteAddress(RReq.getFromIpAdd(receiveBuffer)),
-					AODV_Activity.getStringByByteAddress(RReq.getToIpAdd(receiveBuffer)), receiveBuffer[3], RReq.getFromSeqNum(receiveBuffer), sdf_rreq.format(date_rreq), AODV_Activity.network_interface);
+			mAODV_Service.writeLog(13, AODV_Service.getStringByByteAddress(my_address), AODV_Service.getStringByByteAddress(RREQ.getFromIpAdd(receiveBuffer)),
+					AODV_Service.getStringByByteAddress(RREQ.getToIpAdd(receiveBuffer)), receiveBuffer[3], RREQ.getFromSeqNum(receiveBuffer));
 
 			// 受信したRREQメッセージの情報をListに追加
 			// 引数はRREQ_ID,送信元アドレス
-			AODV_Activity.newPastRReq(RReq.getRREQ_ID(receiveBuffer),RReq.getFromIpAdd(receiveBuffer));
+			mAODV_Service.newPastRREQ(RREQ.getRREQ_ID(receiveBuffer),RREQ.getFromIpAdd(receiveBuffer));
 
 
 			// 逆経路を、生存時間短めで記録
 			// 生存時間は、既に経路があるならその生存時間をそのまま、またはMinimalLifeTimeの大きいほうにセット
 			int index;
 			long life;
-			long MinimalLifeTime = new Date().getTime()+ 2*AODV_Activity.NET_TRAVERSAL_TIME
-				- 2 * RReq.getHopCount(receiveBuffer) * AODV_Activity.NODE_TRAVERSAL_TIME;
+			long MinimalLifeTime = new Date().getTime()+ 2*AODV_Service.NET_TRAVERSAL_TIME
+				- 2 * RREQ.getHopCount(receiveBuffer) * AODV_Service.NODE_TRAVERSAL_TIME;
 			byte state_flag;
 
-			if( (index = AODV_Activity.searchToAdd(RReq.getFromIpAdd(receiveBuffer))) != -1){
-				life = (AODV_Activity.getRoute(index).lifeTime > MinimalLifeTime)? AODV_Activity.getRoute(index).lifeTime:MinimalLifeTime;
+			if( (index = mAODV_Service.searchToAdd(RREQ.getFromIpAdd(receiveBuffer))) != -1){
+				life = (mAODV_Service.getRoute(index).lifeTime > MinimalLifeTime)? mAODV_Service.getRoute(index).lifeTime:MinimalLifeTime;
 			}
 			else{
 				life = MinimalLifeTime;
@@ -153,71 +158,71 @@ public class ReceiveProcess {
 			// シーケンス番号も同様に、既存経路の値と受信RREQ中の値を比較して高いほう
 			// また、既存経路のほうが高い場合、受信したRREQ中の値をその値に変更
 			if(index != -1){
-				if(AODV_Activity.getRoute(index).toSeqNum > RReq.getFromSeqNum(receiveBuffer)){
-    				receiveBuffer = RReq.setFromSeqNum(receiveBuffer, AODV_Activity.getRoute(index).toSeqNum);
+				if(mAODV_Service.getRoute(index).toSeqNum > RREQ.getFromSeqNum(receiveBuffer)){
+    				receiveBuffer = RREQ.setFromSeqNum(receiveBuffer, mAODV_Service.getRoute(index).toSeqNum);
 				}
 			}
 
 			// 経路状態は既存経路があるならそのまま、なければ一時経路
 			if(index != -1){
-				state_flag = AODV_Activity.getRoute(index).stateFlag;
+				state_flag = mAODV_Service.getRoute(index).stateFlag;
 			}
-			else if(RReq.getFlagG(receiveBuffer)){	// ### Gフラグが入っているなら正当経路として作成 ###
+			else if(RREQ.getFlagG(receiveBuffer)){	// ### Gフラグが入っているなら正当経路として作成 ###
 				state_flag = 1;
 			}
 			else{
 				state_flag = 5;
 			}
 
-			Log.d("AODV_type1","\t逆経路作成:"+AODV_Activity.getStringByByteAddress(RReq.getFromIpAdd(receiveBuffer))+
-					"宛"+"("+AODV_Activity.getStringByByteAddress(preHopAddress)+"経由)\n");
+			Log.d("AODV_type1","\t逆経路作成:"+AODV_Service.getStringByByteAddress(RREQ.getFromIpAdd(receiveBuffer))+
+					"宛"+"("+AODV_Service.getStringByByteAddress(preHopAddress)+"経由)\n");
 			// 既に逆経路があるなら上書きset、なければ追加add
 			if(index != -1){
 				// 経路状態は既存のまま
-				AODV_Activity.setRoute(index, new RouteTable( RReq.getFromIpAdd(receiveBuffer), RReq.getFromSeqNum(receiveBuffer)
-    					, true, state_flag, bluetoothFlag, RReq.getHopCount(receiveBuffer), preHopAddress, life
+				mAODV_Service.setRoute(index, new RouteTable( RREQ.getFromIpAdd(receiveBuffer), RREQ.getFromSeqNum(receiveBuffer)
+    					, true, state_flag, bluetoothFlag, RREQ.getHopCount(receiveBuffer), preHopAddress, life
     					, new HashSet<byte[]>() ));
 			}
 			else{
 				// 経路状態は一時的な経路(5)
-				AODV_Activity.addRoute( new RouteTable( RReq.getFromIpAdd(receiveBuffer), RReq.getFromSeqNum(receiveBuffer)
-    					, true, state_flag, bluetoothFlag, RReq.getHopCount(receiveBuffer), preHopAddress, life
+				mAODV_Service.addRoute( new RouteTable( RREQ.getFromIpAdd(receiveBuffer), RREQ.getFromSeqNum(receiveBuffer)
+    					, true, state_flag, bluetoothFlag, RREQ.getHopCount(receiveBuffer), preHopAddress, life
     					, new HashSet<byte[]>() ));
 			}
 
 			// ブロードキャストメッセージ？
-			bload_cast_flag = Arrays.equals(RReq.getByteAddress(AODV_Activity.BLOAD_CAST_ADDRESS)
-					, RReq.getToIpAdd(receiveBuffer));
+			bload_cast_flag = Arrays.equals(RREQ.getByteAddress(AODV_Service.BLOAD_CAST_ADDRESS)
+					, RREQ.getToIpAdd(receiveBuffer));
 
 			// RREQメッセージの内容チェック
-			if(RReq.isToMe(receiveBuffer, my_address) || bload_cast_flag){
+			if(RREQ.isToMe(receiveBuffer, my_address) || bload_cast_flag){
 
 				// RREQ:自分宛のメッセージ または ブロードキャストメッセージのとき
 				Log.d("AODV_type1","RREPを前ホップノード" + preHopAddress + "にユニキャストします");
 
 				// 返信前に、シーケンス番号の更新
-				if( RReq.getToSeqNum(receiveBuffer) == AODV_Activity.seqNum+1){
-					AODV_Activity.seqNum++;
+				if( RREQ.getToSeqNum(receiveBuffer) == mAODV_Service.getSeqNum()+1){
+					mAODV_Service.setSeqNum(mAODV_Service.getSeqNum()+1);
 				}
 
 				// RREPの返信
-				RRep.reply(preHopAddress, RReq.getFromIpAdd(receiveBuffer), my_address, port
-						,(byte)0 ,AODV_Activity.seqNum , AODV_Activity.MY_ROUTE_TIMEOUT);
+				RRep.reply(preHopAddress, RREQ.getFromIpAdd(receiveBuffer), my_address, port
+						,(byte)0 ,mAODV_Service.getSeqNum() , AODV_Service.MY_ROUTE_TIMEOUT);
 
 			}
-			if(!RReq.isToMe(receiveBuffer, my_address) || bload_cast_flag ){
+			if(!RREQ.isToMe(receiveBuffer, my_address) || bload_cast_flag ){
 
 				// RREQ:自分宛でないメッセージ または ブロードキャストメッセージのとき
 				Log.d("AODV_type1", "RREQ:自分宛のメッセージではありません");
 
 				// 宛先までの有効経路を持っているか検索
-				index = AODV_Activity.searchToAdd(RReq.getToIpAdd(receiveBuffer));
+				index = mAODV_Service.searchToAdd(RREQ.getToIpAdd(receiveBuffer));
 
 				// 経路を知っていて、Dフラグがオフなら
-				if( (index != -1) && (!RReq.getFlagD(receiveBuffer))){
-					if( AODV_Activity.getRoute(index).stateFlag == 1
-							&& AODV_Activity.getRoute(index).toSeqNum > RReq.getToSeqNum(receiveBuffer)
-							&& !RReq.getFlagD(receiveBuffer)){
+				if( (index != -1) && (!RREQ.getFlagD(receiveBuffer))){
+					if( mAODV_Service.getRoute(index).stateFlag == 1
+							&& mAODV_Service.getRoute(index).toSeqNum > RREQ.getToSeqNum(receiveBuffer)
+							&& !RREQ.getFlagD(receiveBuffer)){
 
     					// 経路が既知な中間ノードなので、RREPを返信");
 
@@ -225,26 +230,26 @@ public class ReceiveProcess {
     					// まず順経路の更新
     					// 順経路のprecursorListに、逆経路の次ホップを追加。エラー時にRERRを伝えるノード
     					// すでにListに含まれていても、HashSetにより重複は認められないのでOK
-    					RouteTable route = AODV_Activity.getRoute(index);		// 一旦リストから出す
+    					RouteTable route = mAODV_Service.getRoute(index);		// 一旦リストから出す
     					route.preList.add(preHopAddress);		// 書き加え
-    					AODV_Activity.setRoute(index, route);		// リストに上書き
+    					mAODV_Service.setRoute(index, route);		// リストに上書き
 
     					// 次に逆経路の更新
     					// 逆経路のprecursorListに、順経路の次ホップを追加。エラー時にRERRを伝えるノード
-    					int index2 = AODV_Activity.searchToAdd(RReq.getFromIpAdd(receiveBuffer));
-    					route = AODV_Activity.getRoute(index2);
-    					route.preList.add(AODV_Activity.getRoute(index).nextIpAdd);
+    					int index2 = mAODV_Service.searchToAdd(RREQ.getFromIpAdd(receiveBuffer));
+    					route = mAODV_Service.getRoute(index2);
+    					route.preList.add(mAODV_Service.getRoute(index).nextIpAdd);
 
 
     					// Gフラグがセットされていれば、逆経路の状態を有効にし、逆方向経路を確立
     					// また、宛先ノードにもRREPが必要
     					// (どちらも双方向に経路を確立するために用いる)
-    					if(RReq.getFlagG(receiveBuffer)){
+    					if(RREQ.getFlagG(receiveBuffer)){
 
     						// 宛先は順経路の次ホップ
     						InetAddress str = null;
 							try {
-								str = InetAddress.getByAddress(AODV_Activity.getRoute(index).nextIpAdd);
+								str = InetAddress.getByAddress(mAODV_Service.getRoute(index).nextIpAdd);
 							} catch (UnknownHostException e) {
 								// TODO 自動生成された catch ブロック
 								e.printStackTrace();
@@ -254,20 +259,20 @@ public class ReceiveProcess {
     						route.stateFlag =1;
 
     						// G_RREPの送信
-        					RRep.reply(str, RReq.getToIpAdd(receiveBuffer),
-        							RReq.getFromIpAdd(receiveBuffer), port,
-        							AODV_Activity.getRoute(index).hopCount, RReq.getFromSeqNum(receiveBuffer),
-        							(int)(AODV_Activity.getRoute(index).lifeTime - new Date().getTime()));
+        					RRep.reply(str, RREQ.getToIpAdd(receiveBuffer),
+        							RREQ.getFromIpAdd(receiveBuffer), port,
+        							mAODV_Service.getRoute(index).hopCount, RREQ.getFromSeqNum(receiveBuffer),
+        							(int)(mAODV_Service.getRoute(index).lifeTime - new Date().getTime()));
     					}
 
     					// リストに上書き
-    					AODV_Activity.setRoute(index2, route);
+    					mAODV_Service.setRoute(index2, route);
 
     					// RREPの返信
-    					RRep.reply(preHopAddress, RReq.getFromIpAdd(receiveBuffer),
-    							RReq.getToIpAdd(receiveBuffer), port,
-    							AODV_Activity.getRoute(index).hopCount, AODV_Activity.getRoute(index).toSeqNum,
-    							(int)(AODV_Activity.getRoute(index).lifeTime - new Date().getTime()));
+    					RRep.reply(preHopAddress, RREQ.getFromIpAdd(receiveBuffer),
+    							RREQ.getToIpAdd(receiveBuffer), port,
+    							mAODV_Service.getRoute(index).hopCount, mAODV_Service.getRoute(index).toSeqNum,
+    							(int)(mAODV_Service.getRoute(index).lifeTime - new Date().getTime()));
 
 					}
 				}
@@ -275,20 +280,20 @@ public class ReceiveProcess {
 				else{
 					// TTLを減らすタイミングはこの後にしているので、比較は1以下
 					// 順番変えても別にいい気もする
-					if(RReq.getTimeToLive(receiveBuffer)<=1){
+					if(RREQ.getTimeToLive(receiveBuffer)<=1){
 						Log.d("AODV_type1","TTLが0以下なので転送しません");
 					}
 					else{
 						// 条件を満たせば、中継するためブロードキャスト
 						// 引数のTTL--;
 						Log.d("AODV_type1","RREQメッセージを転送");
-						receiveBuffer = RReq.setTimeToLive(receiveBuffer, RReq.getTimeToLive(receiveBuffer)-1);
+						receiveBuffer = RREQ.setTimeToLive(receiveBuffer, RREQ.getTimeToLive(receiveBuffer)-1);
 
-						RReq.send2(receiveBuffer,port);
+						RREQ.send2(receiveBuffer,port);
 
-	        			LogDataBaseOpenHelper.insertLogTableAODV(AODV_Activity.log_db, 12, AODV_Activity.MyIP, AODV_Activity.getStringByByteAddress(RReq.getFromIpAdd(receiveBuffer)),
-	        					AODV_Activity.getStringByByteAddress(RReq.getToIpAdd(receiveBuffer)), receiveBuffer[3], RReq.getFromSeqNum(receiveBuffer), sdf_rreq.format(date_rreq), AODV_Activity.network_interface);
-					}
+						mAODV_Service.writeLog(12, AODV_Service.getStringByByteAddress(my_address), AODV_Service.getStringByByteAddress(RREQ.getFromIpAdd(receiveBuffer)),
+								AODV_Service.getStringByByteAddress(RREQ.getToIpAdd(receiveBuffer)), receiveBuffer[3], RREQ.getFromSeqNum(receiveBuffer));
+	        		}
 				}
 			}
 
@@ -304,48 +309,39 @@ public class ReceiveProcess {
     			Log.d("AODV_type0","To_me_message");
 
     			// "送信元:送られてきたテキスト"をViewに追加
-    			final String src = AODV_Activity.getStringByByteAddress(getAddressSrc(receiveBuffer));
+    			final String src = AODV_Service.getStringByByteAddress(getAddressSrc(receiveBuffer));
     			final String mes = new String(getMessage(receiveBuffer, receiveBuffer.length));
 
     			// final String s2= "prev_hop_is:"+AODV_Activity.getStringByByteAddress(cAddr.getAddress());
+    			
+    			mAODV_Service.appendMessageOnActivity(src+":"+mes+"\n\r");
 
-				handler.post(new Runnable() {
-					@Override
-					public void run() {
-						editText.append(src+":"+mes+"\n\r");
-						editText.setSelection(editText.getText().toString().length());
+				// 暗黙的インテントを投げる要求文字"TASK:"なら
+				if(mes.startsWith("TASK:")){
+		            Intent intent = new Intent();
+		            intent.setAction(Intent.ACTION_CALL);
+		            intent.setData(Uri.parse(mes.replaceFirst("TASK:", "")+"_"+src));	// TASK:〇の部分をセット
+		            intent.putExtra("PACKAGE","jp.ac.ehime_u.cite.udptest");
+		            intent.putExtra("ID", send_intent_id);
+		            context.startActivity(intent);
 
-
-	    				// 暗黙的インテントを投げる要求文字"TASK:"なら
-	    				if(mes.startsWith("TASK:")){
-	    		            Intent intent = new Intent();
-	    		            intent.setAction(Intent.ACTION_CALL);
-	    		            intent.setData(Uri.parse(mes.replaceFirst("TASK:", "")+"_"+src));	// TASK:〇の部分をセット
-	    		            intent.putExtra("PACKAGE","jp.ac.ehime_u.cite.udptest");
-	    		            intent.putExtra("ID", send_intent_id);
-	    		            AODV_Activity.context.startActivity(intent);
-
-	    		            send_intent_id++;
-	    				}
-					}
-				});
-
-
+		            send_intent_id++;
+				}
     		}
     		else{	// 次ホップへ転送
     			// 宛先までの有効経路を持っているか検索
-				index = AODV_Activity.searchToAdd(getAddressDest(receiveBuffer));
+				index = mAODV_Service.searchToAdd(getAddressDest(receiveBuffer));
 
 				Log.d("AODV_type0", "deliver_message");
 
 				// 経路を知っていて
 				if(index != -1){
 					// 有効な経路なら
-					if(AODV_Activity.getRoute(index).stateFlag == 1){
+					if(mAODV_Service.getRoute(index).stateFlag == 1){
 
 						Log.d("AODV_type0", "delivery_start");
 						// 次ホップへそのまま転送
-						sendMessage(cut_byte_spare(receiveBuffer,receiveBuffer.length), AODV_Activity.getRoute(index).nextIpAdd);
+						sendMessage(cut_byte_spare(receiveBuffer,receiveBuffer.length), mAODV_Service.getRoute(index).nextIpAdd);
 
 	    				Log.d("AODV_type0", "delivery_end");
 						break;
@@ -354,7 +350,7 @@ public class ReceiveProcess {
 				// 有効な経路を持っていない場合
 
 				// RERRの送信
-				RouteManager.RERR_Sender(AODV_Activity.getRoute(index),port);
+				RouteManager.RERR_Sender(mAODV_Service.getRoute(index),port);
 
     		}
 
@@ -367,7 +363,7 @@ public class ReceiveProcess {
 			int mesLength = receiveBuffer.length;
 
 			// 自分自身からのRREPなら無視
-			byte[] local_address = new RREQ().getByteAddress("127.0.0.1");
+			byte[] local_address = RREQ.getByteAddress("127.0.0.1");
 
 			if( Arrays.equals(RRep.getToIpAdd(receiveBuffer,mesLength),local_address)
 					|| Arrays.equals(RRep.getToIpAdd(receiveBuffer,mesLength), my_address)){
@@ -377,39 +373,36 @@ public class ReceiveProcess {
 			// AckフラグがオンならRREP_ACKを返す
 			// Helloメッセージの場合はfalse
 			if( RRep.getFlagA(receiveBuffer, mesLength)){
-				new RREP_ACK().send(preHopAddress, port);
+				RREP_ACK.send(preHopAddress, port);
 			}
 
 
 			// ホップ数++
 			receiveBuffer = RRep.hopCountInc(receiveBuffer, mesLength);
 
-			Date date_rrep = new Date();
-			SimpleDateFormat sdf_rrep = new SimpleDateFormat("yyyy/MM/dd kk:mm:ss SSS", Locale.JAPANESE);
-			LogDataBaseOpenHelper.insertLogTableAODV(AODV_Activity.log_db, 23, AODV_Activity.MyIP, AODV_Activity.getStringByByteAddress(RRep.getFromIpAdd(receiveBuffer, mesLength)),
-					AODV_Activity.getStringByByteAddress(RRep.getToIpAdd(receiveBuffer, mesLength)), RRep.getHopCount(receiveBuffer, mesLength),
-					RRep.toSeqNum, sdf_rrep.format(date_rrep), AODV_Activity.network_interface);
-
+			mAODV_Service.writeLog(23, AODV_Service.getStringByByteAddress(my_address), AODV_Service.getStringByByteAddress(RRep.getFromIpAdd(receiveBuffer, mesLength)),
+					AODV_Service.getStringByByteAddress(RRep.getToIpAdd(receiveBuffer, mesLength)), RRep.getHopCount(receiveBuffer, mesLength),
+					RRep.toSeqNum);
 
 			// RREPを送信してきた前ノードが
 			// 何かの経路の次ホップなら、その経路の生存時間を更新
 			// （経路の状態が有効または無効のとき）
-			for(int i=0;i<AODV_Activity.routeTable.size();i++){
-				RouteTable route = AODV_Activity.getRoute(i);
+			for(int i=0;i<mAODV_Service.getRouteSize();i++){
+				RouteTable route = mAODV_Service.getRoute(i);
 				if( Arrays.equals((route.nextIpAdd) , preHopAddress)
 						&& (route.stateFlag == 1 || route.stateFlag == 2)){
 					//Log.d("AODV_RREP","LifeTime before:"+route.lifeTime);
 
 					// 現在の生存時間と、HELLOの式を比較して大きい方に更新
-					if(route.lifeTime < (AODV_Activity.ALLOWED_HELLO_LOSS * AODV_Activity.HELLO_INTERVAL)){
-						route.lifeTime = AODV_Activity.ALLOWED_HELLO_LOSS * AODV_Activity.HELLO_INTERVAL;
+					if(route.lifeTime < (AODV_Service.ALLOWED_HELLO_LOSS * AODV_Service.HELLO_INTERVAL)){
+						route.lifeTime = AODV_Service.ALLOWED_HELLO_LOSS * AODV_Service.HELLO_INTERVAL;
 					}
 					// 状態を有効に
 					route.stateFlag = 1;
 
 					//Log.d("AODV_RREP","LifeTime after:"+route.lifeTime);
 					// 上書き
-					AODV_Activity.setRoute(i,route);
+					mAODV_Service.setRoute(i,route);
 				}
 			}
 
@@ -419,11 +412,11 @@ public class ReceiveProcess {
 			}
 
 			// 順経路（RREQ送信元⇒宛先）が存在するかどうか検索
-			int index2 = AODV_Activity.searchToAdd(RRep.getToIpAdd(receiveBuffer,mesLength));
+			int index2 = mAODV_Service.searchToAdd(RRep.getToIpAdd(receiveBuffer,mesLength));
 
 			// 存在しない場合、順経路の作成
 			if( index2 == -1 ){
-				AODV_Activity.addRoute( new RouteTable( RRep.getToIpAdd(receiveBuffer,mesLength), RRep.getToSeqNum(receiveBuffer,mesLength)
+				mAODV_Service.addRoute( new RouteTable( RRep.getToIpAdd(receiveBuffer,mesLength), RRep.getToSeqNum(receiveBuffer,mesLength)
     					, true, (byte)1, bluetoothFlag, RRep.getHopCount(receiveBuffer,mesLength), preHopAddress
     					, RRep.getLifeTime(receiveBuffer,mesLength) + (new Date().getTime())
     					, new HashSet<byte[]>() ));
@@ -437,15 +430,15 @@ public class ReceiveProcess {
 				// 2.RREPの宛先シーケンス番号＞既存経路の番号であり、有効
 				// 3.シーケンス番号が等しく既存経路が無効である
 				// 4.シーケンス番号が等しくホップ数が既存経路よりも小さい
-				if(	(AODV_Activity.getRoute(index2).validToSeqNumFlag == false)
-					||(RRep.getHopCount(receiveBuffer, mesLength) > AODV_Activity.getRoute(index2).toSeqNum)
-					||( (AODV_Activity.getRoute(index2).stateFlag != 1)
-							&&(RRep.getHopCount(receiveBuffer, mesLength) == AODV_Activity.getRoute(index2).toSeqNum))
-					||( (RRep.getHopCount(receiveBuffer, mesLength) < AODV_Activity.getRoute(index2).hopCount)
-							&&(RRep.getHopCount(receiveBuffer, mesLength) == AODV_Activity.getRoute(index2).toSeqNum)))
+				if(	(mAODV_Service.getRoute(index2).validToSeqNumFlag == false)
+					||(RRep.getHopCount(receiveBuffer, mesLength) > mAODV_Service.getRoute(index2).toSeqNum)
+					||( (mAODV_Service.getRoute(index2).stateFlag != 1)
+							&&(RRep.getHopCount(receiveBuffer, mesLength) == mAODV_Service.getRoute(index2).toSeqNum))
+					||( (RRep.getHopCount(receiveBuffer, mesLength) < mAODV_Service.getRoute(index2).hopCount)
+							&&(RRep.getHopCount(receiveBuffer, mesLength) == mAODV_Service.getRoute(index2).toSeqNum)))
 				{
 					// 順経路の上書き
-					AODV_Activity.setRoute(index2, new RouteTable( RRep.getToIpAdd(receiveBuffer,mesLength), RRep.getToSeqNum(receiveBuffer,mesLength)
+					mAODV_Service.setRoute(index2, new RouteTable( RRep.getToIpAdd(receiveBuffer,mesLength), RRep.getToSeqNum(receiveBuffer,mesLength)
     					, true, (byte)1, bluetoothFlag, RRep.getHopCount(receiveBuffer,mesLength), preHopAddress
     					, RRep.getLifeTime(receiveBuffer,mesLength) + (new Date().getTime())
     					, new HashSet<byte[]>() ));
@@ -459,39 +452,39 @@ public class ReceiveProcess {
 				// RREP:送信元ＩＰアドレスが自分ではありません
 
 				// 順経路を示すindex2を再検索、更新
-				index2 = AODV_Activity.searchToAdd(RRep.getToIpAdd(receiveBuffer,mesLength));
+				index2 = mAODV_Service.searchToAdd(RRep.getToIpAdd(receiveBuffer,mesLength));
 				// RREQ生成ノードへの経路（逆経路）を検索
-				int index3 = AODV_Activity.searchToAdd(RRep.getFromIpAdd(receiveBuffer,mesLength));
+				int index3 = mAODV_Service.searchToAdd(RRep.getFromIpAdd(receiveBuffer,mesLength));
 
 				// 順経路のPrecursorListに、逆経路への次ホップを追加
 				// すでにListに含まれていても、HashSetにより重複は認められないのでOK
-				RouteTable route = AODV_Activity.getRoute(index2);		// 一旦リストから出す
-				route.preList.add(AODV_Activity.getRoute(index3).nextIpAdd);	// 書き加え
-				AODV_Activity.setRoute(index2, route);					// リストに上書き
+				RouteTable route = mAODV_Service.getRoute(index2);		// 一旦リストから出す
+				route.preList.add(mAODV_Service.getRoute(index3).nextIpAdd);	// 書き加え
+				mAODV_Service.setRoute(index2, route);					// リストに上書き
 
 				// 逆経路のPrecursorListに、順経路の次ホップを追加
 				// また、生存時間も更新
-				route = AODV_Activity.getRoute(index3);					// 一旦リストから出す
-				route.preList.add(AODV_Activity.getRoute(index2).nextIpAdd);	// 書き加え
+				route = mAODV_Service.getRoute(index3);					// 一旦リストから出す
+				route.preList.add(mAODV_Service.getRoute(index2).nextIpAdd);	// 書き加え
 
 				// 現在の生存時間と現在時刻+ACTIVE_ROUTE_TIMEOUTの最大値側にセット
-				if(route.lifeTime < (new Date().getTime()+AODV_Activity.ACTIVE_ROUTE_TIMEOUT)){
-					route.lifeTime = new Date().getTime()+AODV_Activity.ACTIVE_ROUTE_TIMEOUT;
+				if(route.lifeTime < (new Date().getTime()+AODV_Service.ACTIVE_ROUTE_TIMEOUT)){
+					route.lifeTime = new Date().getTime()+AODV_Service.ACTIVE_ROUTE_TIMEOUT;
 				}
-				AODV_Activity.setRoute(index3, route);					// リストに上書き
+				mAODV_Service.setRoute(index3, route);					// リストに上書き
 
 				// RREPを前ホップノードに転送
 				// 前ホップノードは逆経路の次ホップと同一
 				try {
-					RRep.reply2(receiveBuffer, InetAddress.getByAddress(AODV_Activity.getRoute(index3).nextIpAdd),port);
+					RRep.reply2(receiveBuffer, InetAddress.getByAddress(mAODV_Service.getRoute(index3).nextIpAdd),port);
 				} catch (UnknownHostException e) {
 					// TODO 自動生成された catch ブロック
 					e.printStackTrace();
 				}
 
-    			LogDataBaseOpenHelper.insertLogTableAODV(AODV_Activity.log_db, 22, AODV_Activity.MyIP, AODV_Activity.getStringByByteAddress(RRep.getFromIpAdd(receiveBuffer, mesLength)),
-    					AODV_Activity.getStringByByteAddress(RRep.getToIpAdd(receiveBuffer, mesLength)), RRep.getHopCount(receiveBuffer, mesLength),
-    					RRep.toSeqNum, sdf_rrep.format(date_rrep), AODV_Activity.network_interface);
+				mAODV_Service.writeLog(22, AODV_Service.getStringByByteAddress(my_address), AODV_Service.getStringByByteAddress(RRep.getFromIpAdd(receiveBuffer, mesLength)),
+						AODV_Service.getStringByByteAddress(RRep.getToIpAdd(receiveBuffer, mesLength)), RRep.getHopCount(receiveBuffer, mesLength),
+    					RRep.toSeqNum);
 			}
 			break;
 
@@ -500,27 +493,27 @@ public class ReceiveProcess {
 			// "このメッセージはRERRです\n");
 
 			// 経路の検索
-			index = AODV_Activity.searchToAdd(RErr.getIpAdd(receiveBuffer));
+			index = mAODV_Service.searchToAdd(RErr.getIpAdd(receiveBuffer));
 
 			// 経路が存在するなら
 			if(index != -1){
 				// リストから出し、フィールドの更新
-				RouteTable route = AODV_Activity.getRoute(index);
+				RouteTable route = mAODV_Service.getRoute(index);
 
 				// 有効経路なら
 				if(route.stateFlag == 1){
 
     				route.stateFlag = 2;	// 無効化
-    				route.lifeTime  = (new Date().getTime()+AODV_Activity.DELETE_PERIOD);	// 削除時間の設定
+    				route.lifeTime  = (new Date().getTime()+AODV_Service.DELETE_PERIOD);	// 削除時間の設定
     				if(route.validToSeqNumFlag){	// シーケンス番号が有効なら
     					route.toSeqNum = RErr.getSeqNum(receiveBuffer);		// ｼｰｹﾝｽ番号も更新
     				}
 
     				// 読みだした場所に上書き
-    				AODV_Activity.setRoute(index, route);
+    				mAODV_Service.setRoute(index, route);
 
 					// ローカルリペアを行えるホップ数か？
-					if(route.hopCount <= AODV_Activity.MAX_REPAIR_TTL){
+					if(route.hopCount <= AODV_Service.MAX_REPAIR_TTL){
 						RouteManager.localRepair(route,port,my_address);
 					}
 					else{
@@ -528,13 +521,8 @@ public class ReceiveProcess {
 						RouteManager.RERR_Sender(route,port);
 
 						final byte[] destination_address = route.toIpAdd;
-
-	    				handler.post(new Runnable() {
-	    					@Override
-	    					public void run() {
-	    						editText.append(AODV_Activity.getStringByByteAddress(destination_address)+" disconnected\n");
-	    					}
-	    				});
+						
+						mAODV_Service.appendMessageOnActivity(AODV_Service.getStringByByteAddress(destination_address)+" disconnected\n");
 					}
 				}
 			}
@@ -550,17 +538,17 @@ public class ReceiveProcess {
 			}
 
 			// 経路の検索
-			index = AODV_Activity.searchToAdd(preHopAddress);
+			index = mAODV_Service.searchToAdd(preHopAddress);
 
 			// 経路があるなら
 			if(index != -1){
-				RouteTable route = AODV_Activity.getRoute(index);
+				RouteTable route = mAODV_Service.getRoute(index);
 
 				// ### 一時経路を有効経路にし、双方向経路を確立 ###
 				// ### 片方向リンクが混在している場合、DELETE_PERIOD間、不正な経路情報となる ###
 				if(route.stateFlag == 5){
 					route.stateFlag = 1;
-					AODV_Activity.setRoute(index, route);
+					mAODV_Service.setRoute(index, route);
 				}
 			}
 
@@ -571,17 +559,16 @@ public class ReceiveProcess {
     		// 自分宛のメッセージ?
 			RINT rint = new RINT(receiveBuffer);
     		boolean to_me_message = Arrays.equals(my_address, rint.getDestinationAddress())
-    								||Arrays.equals(getByteAddress(AODV_Activity.BLOAD_CAST_ADDRESS), rint.getDestinationAddress());
+    								||Arrays.equals(getByteAddress(AODV_Service.BLOAD_CAST_ADDRESS), rint.getDestinationAddress());
 
 			Date date_rint = new Date();
 			SimpleDateFormat sdf_rint = new SimpleDateFormat("yyyy/MM/dd kk:mm:ss SSS", Locale.JAPANESE);
 			if((rint.FLAG_PACKAGE_NAME & rint.flag) != 0)
-				LogDataBaseOpenHelper.insertLogTableDATA(AODV_Activity.log_db, 53, AODV_Activity.MyIP, AODV_Activity.getStringByByteAddress(rint.source_address),
-						AODV_Activity.getStringByByteAddress(rint.destination_address), rint.data.length, rint.package_name, sdf_rint.format(date_rint), AODV_Activity.network_interface);
+				mAODV_Service.writeLogData(53, AODV_Service.getStringByByteAddress(my_address), AODV_Service.getStringByByteAddress(rint.source_address),
+						AODV_Service.getStringByByteAddress(rint.destination_address), rint.data.length, rint.package_name);
 			else
-				LogDataBaseOpenHelper.insertLogTableDATA(AODV_Activity.log_db, 53, AODV_Activity.MyIP, AODV_Activity.getStringByByteAddress(rint.source_address),
-						AODV_Activity.getStringByByteAddress(rint.destination_address), rint.data.length, null, sdf_rint.format(date_rint), AODV_Activity.network_interface);
-
+				mAODV_Service.writeLogData(53, AODV_Service.getStringByByteAddress(my_address), AODV_Service.getStringByByteAddress(rint.source_address),
+						AODV_Service.getStringByByteAddress(rint.destination_address), rint.data.length, null);
     		if(to_me_message){
     			Log.d("AODV_type5","To_me_message");
 
@@ -635,37 +622,37 @@ public class ReceiveProcess {
 	            	intent.putExtra("DATA", rint.getData());
 	            }
 
-	            intent.putExtra("SOURCE_ADDRESS", AODV_Activity.getStringByByteAddress(rint.getSourceAddress()));
+	            intent.putExtra("SOURCE_ADDRESS", AODV_Service.getStringByByteAddress(rint.getSourceAddress()));
 	            intent.putExtra("PACKAGE","jp.ac.ehime_u.cite.udptest");
 	            intent.putExtra("ID", send_intent_id);
-	            AODV_Activity.context.startActivity(intent);
+	            context.startActivity(intent);
 
 	            send_intent_id++;
     		}
 
     		boolean hop_message = (!Arrays.equals(my_address, rint.getDestinationAddress()))
-								|| Arrays.equals(getByteAddress(AODV_Activity.BLOAD_CAST_ADDRESS), rint.getDestinationAddress());
+								|| Arrays.equals(getByteAddress(AODV_Service.BLOAD_CAST_ADDRESS), rint.getDestinationAddress());
     		if(hop_message){	// 次ホップへ転送
     			// 宛先までの有効経路を持っているか検索
-				index = AODV_Activity.searchToAdd(rint.getDestinationAddress());
+				index = mAODV_Service.searchToAdd(rint.getDestinationAddress());
 
 				Log.d("AODV_type5", "deliver_message");
 
 				// 経路を知っていて
 				if(index != -1){
 					// 有効な経路なら
-					if(AODV_Activity.getRoute(index).stateFlag == 1){
+					if(mAODV_Service.getRoute(index).stateFlag == 1){
 
 						Log.d("AODV_type5", "delivery_start");
 						// 次ホップへそのまま転送
-						sendMessage(receiveBuffer, AODV_Activity.getRoute(index).nextIpAdd);
+						sendMessage(receiveBuffer, mAODV_Service.getRoute(index).nextIpAdd);
 
 						if((rint.FLAG_PACKAGE_NAME & rint.flag) != 0)
-    						LogDataBaseOpenHelper.insertLogTableDATA(AODV_Activity.log_db, 52, AODV_Activity.MyIP, AODV_Activity.getStringByByteAddress(rint.source_address),
-    								AODV_Activity.getStringByByteAddress(rint.destination_address), rint.data.length, rint.package_name, sdf_rint.format(date_rint), AODV_Activity.network_interface);
+							mAODV_Service.writeLogData(52, AODV_Service.getStringByByteAddress(my_address), AODV_Service.getStringByByteAddress(rint.source_address),
+									AODV_Service.getStringByByteAddress(rint.destination_address), rint.data.length, rint.package_name);
 						else
-    						LogDataBaseOpenHelper.insertLogTableDATA(AODV_Activity.log_db, 52, AODV_Activity.MyIP, AODV_Activity.getStringByByteAddress(rint.source_address),
-    								AODV_Activity.getStringByByteAddress(rint.destination_address), rint.data.length, null, sdf_rint.format(date_rint), AODV_Activity.network_interface);
+							mAODV_Service.writeLogData(52, AODV_Service.getStringByByteAddress(my_address), AODV_Service.getStringByByteAddress(rint.source_address),
+									AODV_Service.getStringByByteAddress(rint.destination_address), rint.data.length, null);
 	    				Log.d("AODV_type5", "delivery_end");
 						break;
 					}
@@ -673,13 +660,13 @@ public class ReceiveProcess {
 				// 有効な経路を持っていない場合
 
 				// RERRの送信
-				if(!Arrays.equals(getByteAddress(AODV_Activity.BLOAD_CAST_ADDRESS), rint.getDestinationAddress()))
-					RouteManager.RERR_Sender(AODV_Activity.getRoute(index),port);
+				if(!Arrays.equals(getByteAddress(AODV_Service.BLOAD_CAST_ADDRESS), rint.getDestinationAddress()))
+					RouteManager.RERR_Sender(mAODV_Service.getRoute(index),port);
     		}
 
 			break;
 
-    	case 10: // 分割ファイル送信FSEND
+/*    	case 10: // 分割ファイル送信FSEND
 			Log.d("分割ファイルFSEND","get");
     		// 自分宛のメッセージなら
     		if( FSend.isToMe(receiveBuffer,my_address)){
@@ -1012,7 +999,8 @@ public class ReceiveProcess {
 				RouteManager.RERR_Sender(AODV_Activity.getRoute(index1),port);
     		}
 
-    		break;
+    		break;*/
+    		
 		}
 	}
 	
@@ -1040,29 +1028,29 @@ public class ReceiveProcess {
 	// 受信ファイル検索
 	// 受信中のデータにファイル名が同じものがあるか検索
 	// 無ければ-1を返す
-	public int searchSameNameFile(String name){
-		synchronized(AODV_Activity.fileReceivedManagerLock){
-			for(int i=0;i<file_received_manager.size();i++){
-				if( file_received_manager.get(i).file_name.equals(name)){
-					return i;
-				}
-			}
-		}
-		return -1;
-	}
+//	public int searchSameNameFile(String name){
+//		synchronized(AODV_Activity.fileReceivedManagerLock){
+//			for(int i=0;i<file_received_manager.size();i++){
+//				if( file_received_manager.get(i).file_name.equals(name)){
+//					return i;
+//				}
+//			}
+//		}
+//		return -1;
+//	}
 	// 長時間音沙汰の無い受信ファイルのindexを返す
-	public int removeDisconnectedFile(){
-		synchronized(AODV_Activity.fileReceivedManagerLock){
-
-			long now = new Date().getTime();
-			for(int i=0;i<file_received_manager.size();i++){
-				if( file_received_manager.get(i).life_time < now){
-					return i;
-				}
-			}
-		}
-		return -1;
-	}
+//	public int removeDisconnectedFile(){
+//		synchronized(AODV_Activity.fileReceivedManagerLock){
+//
+//			long now = new Date().getTime();
+//			for(int i=0;i<file_received_manager.size();i++){
+//				if( file_received_manager.get(i).life_time < now){
+//					return i;
+//				}
+//			}
+//		}
+//		return -1;
+//	}
 
 	/***** メッセージ0:テキストメッセージ用関数 ******/
 	// メッセージ0が自分宛か？

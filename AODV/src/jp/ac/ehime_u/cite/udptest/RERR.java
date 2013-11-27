@@ -15,7 +15,7 @@ public class RERR {
 	
 	// RERRメッセージの送信、ユニキャスト用
 	// 引数：
-	public void send(boolean flagN,byte[] add,int seq,byte[] atesaki,int port){
+	public void send(boolean flagN,byte[] add,int seq,byte[] atesaki,AODV_Service binder){
 		
 		type = 3;	// RERRメッセージ
 		
@@ -35,12 +35,13 @@ public class RERR {
 		System.arraycopy(intToByte(SeqNum),0,sendBuffer,7,4);
 	
 		// データグラムソケットを開く
-		SendByteArray.send(sendBuffer, atesaki);
-		
+		if(binder != null){
+			binder.send(sendBuffer, atesaki);
+		}
 	}
 	
 	// RERRメッセージの送信、ブロードキャスト用
-	public void send(boolean flagN,byte[] add,int seq,int port){
+	public void send(boolean flagN,byte[] add,int seq,AODV_Service binder){
 		
 		type = 3;	// RERRメッセージ
 		
@@ -58,12 +59,13 @@ public class RERR {
 		sendBuffer[2] = destCount;
 		System.arraycopy(IpAdd			  ,0,sendBuffer,3,4);
 		System.arraycopy(intToByte(SeqNum),0,sendBuffer,7,4);
-	
-		SendByteArray.send(sendBuffer, SendByteArray.getByteAddress("255.255.255.255"));
 		
+		if(binder != null){
+			binder.send(sendBuffer, RREQ.getByteAddress("255.255.255.255"));
+		}
 	}
 	
-	public void RERR_Sender(RouteTable route,int port){
+	public void RERR_Sender(RouteTable route,AODV_Service binder){
 		// precursorListの全アドレスにRERRの送信
 		if(route.preList.size()==1){
 			// 伝えるノードが1つだけである場合
@@ -71,7 +73,7 @@ public class RERR {
 			byte[] atesaki = it.next();
 			// RERRをユニキャスト
 			try {
-				send(false, route.nextIpAdd, route.toSeqNum, atesaki, port);
+				send(false, route.nextIpAdd, route.toSeqNum, atesaki, binder);
 			} catch (Exception ex4) {
 				ex4.printStackTrace();
 			}
@@ -80,7 +82,7 @@ public class RERR {
 			// 伝えるノードが複数である場合
 			// RERRをブロードキャスト
 			try {
-				send(false, route.nextIpAdd, route.toSeqNum, port);
+				send(false, route.nextIpAdd, route.toSeqNum, binder);
 			} catch (Exception ex5) {
 				ex5.printStackTrace();
 			}

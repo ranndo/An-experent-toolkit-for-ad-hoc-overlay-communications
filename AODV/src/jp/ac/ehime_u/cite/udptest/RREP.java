@@ -32,10 +32,10 @@ public class RREP {
 
 	// RREPメッセージの送信
 	// 引数：前ホップのノードのアドレス(InetAddress型),RREPのデータ（RREPの宛先ＩＰアドレスはRREPの送信元ＩＰアドレスだから)
-	public void reply(InetAddress str, byte[] soushinmoto,byte[] atesaki,int port,byte hopNum,int seq,int life,AODV_Service binder) {
-		reply(str.getAddress(), soushinmoto, atesaki, port, hopNum, seq, life,binder);
+	public void reply(InetAddress str, byte[] soushinmoto,byte[] atesaki,byte hopNum,int seq,int life,AODV_Service binder) {
+		reply(str.getAddress(), soushinmoto, atesaki, hopNum, seq, life,binder);
 	}
-	public void reply(byte[] address, byte[] soushinmoto,byte[] atesaki,int port,byte hopNum,int seq,int life,final AODV_Service binder) {
+	public void reply(byte[] address, byte[] soushinmoto,byte[] atesaki,byte hopNum,int seq,int life,final AODV_Service binder) {
 
 		// 各フィールドの初期化
 		type = 2;	// RREPを示す
@@ -66,7 +66,7 @@ public class RREP {
 		System.arraycopy(fromIpAdd			  ,0,sendBuffer,12,4);
 		System.arraycopy(intToByte(lifeTime)  ,0,sendBuffer,16,4);
 
-		SendByteArray.send(sendBuffer, address);
+		binder.send(sendBuffer, address);
 
         System.out.println("RREPメッセージを送信しました");	//###デバッグ用###
         
@@ -119,12 +119,12 @@ public class RREP {
 	/***** RREPメッセージの転送 *****/
 
 	// 引数：受け取ったバイト配列，RREP転送先のＩＰアドレス
-	public void reply2(byte[] data, InetAddress lastNODE,int port,final AODV_Service binder){
+	public void reply2(byte[] data, InetAddress lastNODE,final AODV_Service binder){
 
 		// ホップ数+1
 		data[3]++;
 
-		SendByteArray.send(data, lastNODE.getAddress(), 20);
+		binder.send(data, lastNODE.getAddress(), 20);
 
 	    System.out.println("RREPメッセージを転送しました");	//###デバッグ用###
 
@@ -168,7 +168,7 @@ public class RREP {
 
 	// HELLOメッセージの送信（TTL=1のRREP）
 	// 引数：シーケンス番号、生存時間
-	public void send(int seq,int port,int life,byte[] my_address) throws Exception{
+	public void send(int seq,int life,byte[] my_address,AODV_Service binder) throws Exception{
 
 		type = 2;	// HELLOメッセージ
 		newHopCount = 0;
@@ -189,7 +189,7 @@ public class RREP {
 		System.arraycopy(intToByte(toSeqNum)  ,0,sendBuffer,6,4);
 		System.arraycopy(intToByte(lifeTime)  ,0,sendBuffer,10,4);
 
-		SendByteArray.send(sendBuffer, SendByteArray.getByteAddress("255.255.255.255"));
+		binder.send(sendBuffer, RREQ.getByteAddress("255.255.255.255"));
 
 	}
 
@@ -277,13 +277,12 @@ public class RREP {
 		return byteToInt(buf);
 	}
 	// RREPメッセージからfromoIpAddフィールドを返す
-	public byte[] getFromIpAdd(byte[] RREPMes,int length){
+	public byte[] getFromIpAdd(byte[] RREPMes,int length,byte[] myAddress){
 
 		// HELLO?
 		if(length == 14)
 			{
-				StaticIpAddress sIp = new StaticIpAddress(AODV_Activity.context);
-				return getByteAddress(sIp.getStaticIp());
+				return myAddress;
 			}
 
 		// 該当部分のbyte[]を抜き出し

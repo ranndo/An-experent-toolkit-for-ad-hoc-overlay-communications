@@ -25,7 +25,6 @@ import android.widget.EditText;
 public class RouteManager implements Runnable {
 	
 	RouteTable route;
-	int port;
 	byte[] myAddress;
 	Context context;
 	
@@ -33,14 +32,16 @@ public class RouteManager implements Runnable {
 	private AODV_Service mAODV_Service;
 	private boolean bindState;
 	
-	public RouteManager(int port_,Context context_) throws IOException{
-		port = port_;
+	public RouteManager(Context context_) throws IOException{
+		context = context_;
 		
-		StaticIpAddress sIp = new StaticIpAddress(AODV_Activity.context);
+		StaticIpAddress sIp = new StaticIpAddress(context);
 		myAddress = sIp.getStaticIpByte();
 		
 		bindState = false;
-		context.bindService( new Intent( context, AODV_Service.class), connection, Context.BIND_AUTO_CREATE);
+		Intent intent = new Intent(context, AODV_Service.class);
+		intent.setPackage(context.getPackageName());
+		context.bindService(intent, connection, Context.BIND_AUTO_CREATE);
 	}
 	public void stop(){
 		if(bindState == true){
@@ -68,17 +69,20 @@ public class RouteManager implements Runnable {
 	
 	@Override
 	public void run() {
-		while(true){
-			if(!bindState){
-				try {
-					Thread.sleep(1000);
-				} catch (InterruptedException e) {
-					// TODO 自動生成された catch ブロック
-					e.printStackTrace();
-				}
-				continue;
+		
+		while (true){
+			if(bindState == true){
+				break;
 			}
-			
+			try {
+				Thread.sleep(1000);
+			} catch (InterruptedException e) {
+				// TODO 自動生成された catch ブロック
+				e.printStackTrace();
+			}
+		}
+		
+		while(true){
 			// 経路が存在するならば
 			if(mAODV_Service.getRouteSize() > 0){
 				
@@ -86,10 +90,10 @@ public class RouteManager implements Runnable {
 				// 一定時間内にブロードキャストしていれば実行しない
 				if(mAODV_Service.getDoBroadcast() == false){
 					try {
-						new RREP().send(mAODV_Service.getSeqNum(), port, 
+						new RREP().send(mAODV_Service.getSeqNum(), 
 								AODV_Service.ALLOWED_HELLO_LOSS *
 								AODV_Service.HELLO_INTERVAL
-								, myAddress);
+								, myAddress, mAODV_Service);
 					} catch (Exception ex) {
 						ex.printStackTrace();
 					}
@@ -124,11 +128,11 @@ public class RouteManager implements Runnable {
 						
 						// ローカルリペアを行えるホップ数か？
 						if(route.hopCount <= AODV_Service.MAX_REPAIR_TTL){
-							mAODV_Service.localRepair(route,port,myAddress,mAODV_Service);
+							mAODV_Service.localRepair(route,myAddress,mAODV_Service);
 						}
 						else{
 							// RERRの送信
-							new RERR().RERR_Sender(route,port);
+							new RERR().RERR_Sender(route,mAODV_Service);
 							
 							final byte[] destination_address = route.toIpAdd;
 							mAODV_Service.appendMessageOnActivity(AODV_Service.getStringByByteAddress(destination_address)+" disconnected\n");

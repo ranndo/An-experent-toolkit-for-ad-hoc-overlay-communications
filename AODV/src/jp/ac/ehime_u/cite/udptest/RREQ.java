@@ -30,7 +30,7 @@ public class RREQ {
 	// RREQメッセージの送信
 	// 引数：送信先(String型)
 	public static void send(byte[] destination_address, byte[] myAddress, boolean flagJ ,boolean flagR ,boolean flagG ,boolean flagD ,boolean flagU
-			,int toSeq ,int fromSeq,int ID,int TTL,int port,String text,AODV_Service binder) {
+			,int toSeq ,int fromSeq,int ID,int TTL,String text,AODV_Service binder) {
 
 		// 各フィールドの初期化
 		byte type = 1;	// RREQを示す
@@ -80,19 +80,23 @@ public class RREQ {
 		if(bload_cast_flag){
 			System.arraycopy(message_b,0,sendBuffer,28,message_b.length);
 		}
+  
+        if(binder != null){
+    		binder.send(sendBuffer, RREQ.getByteAddress("255.255.255.255"));
 
-		SendByteArray.send(sendBuffer, SendByteArray.getByteAddress("255.255.255.255"));
-
-        System.out.println("RREQメッセージを送信しました");	//###デバッグ用###
-        binder.writeLog(11,getStringByByteAddress(myAddress),getStringByByteAddress(myAddress),getStringByByteAddress(destination_address), 0,fromSeqNum);
-	}
+            System.out.println("RREQメッセージを送信しました");	//###デバッグ用###
+          
+        	binder.writeLog(11,getStringByByteAddress(myAddress),getStringByByteAddress(myAddress),getStringByByteAddress(destination_address), 0,fromSeqNum);
+        }
+    }
 
 	/***** RREQメッセージの転送 *****/
-	public static void send2(byte[] data,int port){
-
-		SendByteArray.send(data, SendByteArray.getByteAddress("255.255.255.255"), 28);
-
-	    System.out.println("RREQメッセージを転送しました");	//###デバッグ用###
+	public static void send2(byte[] data,AODV_Service binder){
+		if(binder != null){
+			binder.send(data, RREQ.getByteAddress("255.255.255.255"), 28);
+		
+	    	System.out.println("RREQメッセージを転送しました");	//###デバッグ用###
+		}
 	}
 
 	// 受信したRREQメッセージが自身のノード宛のものか調べる

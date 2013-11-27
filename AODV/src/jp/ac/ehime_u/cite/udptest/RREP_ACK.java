@@ -15,10 +15,10 @@ public class RREP_ACK {
 	// RREP_ACKの送信
 	// 引数1: ACKを返す宛先ノードのアドレス
 	// 引数2: port番号
-	public static void send(InetAddress destination_inet,int port){
-		send(destination_inet.getAddress(), port);
+	public static void send(InetAddress destination_inet,AODV_Service binder){
+		send(destination_inet.getAddress(), binder);
 	}
-	public static void send(byte[] address,int port){
+	public static void send(byte[] address,AODV_Service binder){
 
 		byte type = 4;
 		byte reserved = 0;
@@ -29,7 +29,7 @@ public class RREP_ACK {
 		send_buffer[0] = type;
 		send_buffer[1] = reserved;
 
-		SendByteArray.send(send_buffer, address);
+		binder.send(send_buffer, address);
         System.out.println("RREP_ACKメッセージを送信しました");	//###デバッグ用###
 	}
 }

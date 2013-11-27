@@ -24,8 +24,6 @@ import java.util.Locale;
 import java.util.Timer;
 import java.util.TimerTask;
 
-import com.example.intenttester_s.AODV_Service;
-
 import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.app.Service;
@@ -33,6 +31,7 @@ import android.bluetooth.BluetoothAdapter;
 import android.content.Context;
 import android.content.Intent;
 import android.database.sqlite.SQLiteDatabase;
+import android.net.wifi.WifiManager;
 import android.os.Binder;
 import android.os.Handler;
 import android.os.IBinder;
@@ -51,7 +50,9 @@ public class AODV_Service extends Service
 	// スレッド
 	private Thread udpListenerThread;	// 受信スレッド
 	private Thread routeManagerThread;	// ルート監視スレッド
-	private boolean timer_stop = false;	//ExpandingRingSerchを終了するためのもの
+	
+	// ポート
+	private final int port = 12345;
 	
 	// ルートテーブル
 	private ArrayList<RouteTable> routeTable = new ArrayList<RouteTable>();
@@ -66,6 +67,7 @@ public class AODV_Service extends Service
 	// データベースへ様々な情報を記録
 	private SQLiteDatabase log_db;
 	private String MyIP;
+	private byte[] myAddress;
 	private String network_interface;
 	
 	// マルチスレッドの排他制御用オブジェクト
@@ -73,6 +75,8 @@ public class AODV_Service extends Service
 	public Object pastDataLock = new Object();
 	public Object blackListLock = new Object();
 	public Object ackDemandListLock = new Object();
+	public Object RREQ_ID_Lock = new Object();
+	public Object seqNumLock = new Object();
 	public Object fileManagerLock = new Object();
 	public Object fileReceivedManagerLock = new Object();
 	
@@ -130,12 +134,9 @@ public class AODV_Service extends Service
 	// その他変数
 	private int RREQ_ID = 0;
 	private int seqNum = 0;
-	private boolean do_BroadCast = false; // 一定時間内に何かﾌﾞﾛｰﾄﾞｷｬｽﾄしたかどうか
-	
+	private volatile boolean do_BroadCast = false; // 一定時間内に何かﾌﾞﾛｰﾄﾞｷｬｽﾄしたかどうか
+	private int sendIntentId = 0;
     
-	// ファイル送信
-	private ArrayList<FileManager> file_manager = new ArrayList<FileManager>();
-	
 	
 	
     /**
@@ -252,30 +253,30 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 			// 送信データ生成ここまで
 
 			// 送信先への経路が存在するかチェック
-			final int route_index = AODV_Activity.searchToAdd(getByteAddress(destination_address));
+			final int route_index = searchToAdd(getByteAddress(destination_address));
 			// 経路が存在する場合、有効かどうかチェック
 			boolean enableRoute = false; // 初期化
 			Log.d("ServiceSearch","z");
 			if (route_index != -1) {
-				if ( AODV_Activity.getRoute(route_index).stateFlag == 1 &&
-						(AODV_Activity.getRoute(route_index).lifeTime > new Date().getTime())) {
+				if ( getRoute(route_index).stateFlag == 1 &&
+						(getRoute(route_index).lifeTime > new Date().getTime())) {
 					enableRoute = true;
 				}
 			}
 			if(enableRoute){
 				// 使用可能な経路がすでにある場合
-				RouteTable route = AODV_Activity.getRoute(route_index);
+				RouteTable route = getRoute(route_index);
 
-				SendByteArray.send(buffer, route.nextIpAdd);
+				send(buffer, route.nextIpAdd);
 			}
 			else{Log.d("ServiceSearch","X");
 				// 経路がない場合
 
 				// 自身のシーケンス番号をインクリメント
-				AODV_Activity.seqNum++;
+				seqNum++;
 
 				// もし宛先がブロードキャストアドレスならExpandingRingSearchを行わない
-				if( AODV_Activity.BLOAD_CAST_ADDRESS.equals(destination_address)){
+				if( BLOAD_CAST_ADDRESS.equals(destination_address)){
 					// *** RREQじゃなくて素のタイプ5メッセージを送るべきかな？ ***
 //					// RREQ_IDをインクリメント
 //					AODV_Activity.RREQ_ID++;
@@ -314,20 +315,22 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 
 					// 無効経路が存在するなら、その情報を流用
 					if (route_index != -1) {
-						TTL_VALUE = AODV_Activity.getRoute(route_index).hopCount + AODV_Activity.TTL_INCREMENT;
+						TTL_VALUE = getRoute(route_index).hopCount + TTL_INCREMENT;
 						flagU = false;
-						seqValue = AODV_Activity.getRoute(route_index).toSeqNum;
+						seqValue = getRoute(route_index).toSeqNum;
 					}
 					else{
-						TTL_VALUE = AODV_Activity.TTL_START;
+						TTL_VALUE = TTL_START;
 						flagU = true;
 						seqValue = 0;
 					}
 
 					// ExpandingRingSearch
-					final int ring_traversal_time = 2 * AODV_Activity.NODE_TRAVERSAL_TIME * (TTL_VALUE + AODV_Activity.TIMEOUT_BUFFER);
+					final int ring_traversal_time = 2 * NODE_TRAVERSAL_TIME * (TTL_VALUE + TIMEOUT_BUFFER);
 					final byte[] source_address_b = getByteAddress(source_address);
+					final String source_address_S = source_address;
 					final byte[] destination_address_b = getByteAddress(destination_address);
+					final String destination_address_S = destination_address;
 					final byte[] buffer_copy = buffer.clone();
 
 					try {
@@ -348,14 +351,14 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 
 										// 以下、定期処理の内容
 										// 経路が完成した場合、ループを抜ける
-										if ( (index_new = AODV_Activity.searchToAdd(destination_address_b)) != -1) {
+										if ( (index_new = searchToAdd(destination_address_b)) != -1) {
 
 											timer_stop = true;
 
 											// メッセージの送信
-											RouteTable route = AODV_Activity.getRoute(index_new);
+											RouteTable route = getRoute(index_new);
 											InetAddress next_hop_inet = null;
-											SendByteArray.send(buffer_copy, route.nextIpAdd);
+											send(buffer_copy, route.nextIpAdd);
 											
 											try {
 												File file = getFileStreamPath("imagePacket.txt");
@@ -372,27 +375,27 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 										}
 
 										// TTLが上限値なRREQを送信済みならループを抜ける
-										else if (TTL_VALUE_ == (AODV_Activity.TTL_THRESHOLD + AODV_Activity.TTL_INCREMENT)) {
+										else if (TTL_VALUE_ == (TTL_THRESHOLD + TTL_INCREMENT)) {
 											timer_stop = true;
 										}
 
 										// TTLの微調整
 										// 例えばINCREMENT2,THRESHOLD7のとき,TTLの変化は2->4->6->7(not 8)
-										if (TTL_VALUE_ > AODV_Activity.TTL_THRESHOLD) {
-											TTL_VALUE_ = AODV_Activity.TTL_THRESHOLD;
+										if (TTL_VALUE_ > TTL_THRESHOLD) {
+											TTL_VALUE_ = TTL_THRESHOLD;
 										}
 
 										// RREQ_IDをインクリメント
-										AODV_Activity.RREQ_ID++;
+										RREQ_ID++;
 
 										// 自分が送信したパケットを受信しないようにIDを登録
-										AODV_Activity.newPastRReq(AODV_Activity.RREQ_ID, myAdd);
+										newPastRREQ(RREQ_ID, myAdd);
 
 										// RREQの送信
-										AODV_Activity.do_BroadCast = true;
+										do_BroadCast = true;
 
 										try {
-											new RREQ().send(destination_address_b,
+											RREQ.send(destination_address_b,
 															myAdd,
 															false,
 															false,
@@ -400,11 +403,12 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 															false,
 															flagU,
 															seqValue,
-															AODV_Activity.seqNum,
-															AODV_Activity.RREQ_ID,
+															seqNum,
+															RREQ_ID,
 															TTL_VALUE_,
-															12345,
+															null,
 															null);
+								        	writeLog(11,source_address_S,source_address_S,destination_address_S, 0,seqNum);
 										} catch (Exception e) {
 											e.printStackTrace();
 										}
@@ -412,10 +416,10 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 										// ちょっと強引な待機(本来はRREPが戻ってくれば待たなくていい時間も待っている)
 										// 待ち時間をVALUEに合わせて更新
 										ring_traversal_time_ = 2
-												* AODV_Activity.NODE_TRAVERSAL_TIME
-												* (TTL_VALUE_ + AODV_Activity.TIMEOUT_BUFFER);
+												* NODE_TRAVERSAL_TIME
+												* (TTL_VALUE_ + TIMEOUT_BUFFER);
 
-										TTL_VALUE_ += AODV_Activity.TTL_INCREMENT;
+										TTL_VALUE_ += TTL_INCREMENT;
 									}
 
 									// 指定の時間停止する
@@ -443,11 +447,11 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 			Date date_rint = new Date();
 			SimpleDateFormat sdf_rint = new SimpleDateFormat("yyyy/MM/dd kk:mm:ss SSS", Locale.JAPANESE);
 			if((RINT.FLAG_PACKAGE_NAME & flag) != 0)
-				LogDataBaseOpenHelper.insertLogTableDATA(AODV_Activity.log_db, 51, AODV_Activity.MyIP, source_address,
-						destination_address, data.length, package_name, sdf_rint.format(date_rint), AODV_Activity.network_interface);
+				LogDataBaseOpenHelper.insertLogTableDATA(log_db, 51, MyIP, source_address,
+						destination_address, data.length, package_name, sdf_rint.format(date_rint), network_interface);
 			else
-				LogDataBaseOpenHelper.insertLogTableDATA(AODV_Activity.log_db, 51, AODV_Activity.MyIP, source_address,
-						destination_address, data.length, package_name, sdf_rint.format(date_rint), AODV_Activity.network_interface);
+				LogDataBaseOpenHelper.insertLogTableDATA(log_db, 51, MyIP, source_address,
+						destination_address, data.length, package_name, sdf_rint.format(date_rint), network_interface);
 		}
 
 		@Override
@@ -470,6 +474,15 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 	
     @Override
     public IBinder onBind(Intent intent) {
+    	// 同アプリからのBindなら，簡易アクセス用のBinderを返す
+    	String packageName = intent.getPackage();
+    	if(packageName != null){
+    		if(packageName.equals(this.getPackageName())){
+    			return new AODV_ServiceBinder();
+    		}
+    	}
+    	
+    	// 外アプリからのBindなら，StubBinderを返す
         return mBinder;
     }
     
@@ -496,6 +509,7 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 		//Log.d("service","oncreate");
 		StaticIpAddress sIp = new StaticIpAddress(this);
 		MyIP = sIp.getStaticIp();
+		myAddress = getByteAddress(MyIP);
 		
 		// スレッドが起動中でなければ
 		if( udpListenerThread == null ){
@@ -514,7 +528,7 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 		if( routeManagerThread == null){
 			// 経路監視スレッドのインスタンスを作成
 			try {
-				RouteManager route_manager = new RouteManager(12345);
+				RouteManager route_manager = new RouteManager(this);
 				// スレッドを取得
 				routeManagerThread = new Thread(route_manager);
 			} catch (IOException e2) {
@@ -523,7 +537,35 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 			// 監視スレッドrun()
 			routeManagerThread.start();
 		}
+		
+        // Get local Bluetooth adapter
+        mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        // if BT is enabled, start setup
+        if (mBluetoothAdapter != null) {
+            if (mBluetoothAdapter.isEnabled()) {
+            	setupChat();
+                // Only if the state is STATE_NONE, do we know that we haven't started already
+                if (mChatService.getState() == BluetoothChatService.STATE_NONE) {
+                  // Start the Bluetooth chat services
+                  mChatService.start();
+                }
+            }
+        }
+        
+        // ログデータベースへ書き込み用。
+		WifiManager wifi = (WifiManager)getSystemService(WIFI_SERVICE);
+		network_interface = wifi.getConnectionInfo().getSSID();
+		if(network_interface == null){
+			network_interface = "other";
+		}
 
+		
+		// ログデータベースの書き込み準備
+		LogDataBaseOpenHelper DBhelper = new LogDataBaseOpenHelper(getApplicationContext());
+		log_db = DBhelper.getWritableDatabase();
+		
+		// 被削除耐性
+		setForeground(true);
 	}
 
     @Override
@@ -533,8 +575,17 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
     
 	@Override
 	public void onDestroy() {
+		if (mChatService != null){
+			mChatService.stop();
+		}
 		// Toast.makeText(this, "service done", Toast.LENGTH_SHORT).show();
 	}
+	
+	// Bluetooth関連
+    private void setupChat() {
+        // Initialize the BluetoothChatService to perform bluetooth connections
+        mChatService = new BluetoothChatService(this, this, myAddress);
+    }
 
 	// IPアドレス(byte配列)から文字列(例:"127.0.0.1")へ変換
 	public static String getStringByByteAddress(byte[] ip_address){
@@ -637,7 +688,7 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 		return false;
 	}
 	// 同時に参照が起こらないよう、リストに追加するメソッド
-	public void newPastRReq(int IDnum, byte[] FromIpAdd) {
+	public void newPastRREQ(int IDnum, byte[] FromIpAdd) {
 
 		synchronized (pastDataLock) {
 			receiveRREQ_List.add(new PastData(IDnum, FromIpAdd, new Date()
@@ -659,10 +710,19 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 	}
 	// seqNum
 	public int getSeqNum(){
-		return seqNum;
+		synchronized (seqNumLock) {
+			return seqNum;
+		}
 	}
 	public void setSeqNum(int i){
-		seqNum = i;
+		synchronized (seqNumLock) {
+			seqNum = i;
+		}
+	}
+	public void seqNumIncrement(){
+		synchronized (seqNumLock) {
+			seqNum++;
+		}
 	}
 	// do_BroadCast
 	public boolean getDoBroadcast(){
@@ -673,10 +733,19 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 	}
 	// RREQ_ID
 	public int getRREQ_ID(){
-		return RREQ_ID;
+		synchronized (RREQ_ID_Lock) {
+			return RREQ_ID;
+		}
 	}
 	public void setRREQ_ID(int id){
-		RREQ_ID = id;
+		synchronized (RREQ_ID_Lock) {
+			RREQ_ID = id;
+		}
+	}
+	public void RREQ_ID_Increment(){
+		synchronized(RREQ_ID_Lock){
+			RREQ_ID++;
+		}
 	}
 	// MyIp(String)
 	public String getMyIP(){
@@ -779,9 +848,26 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 			black_list.remove(index);
 		}
 	}
+	// BlackListに対して該当アドレスを検索
+	public int searchInBlackList(byte[] add){
+		synchronized(blackListLock){
+			for(int i=0;i<black_list.size();i++){
+				if( Arrays.equals( black_list.get(i).ip_add, add)){
+					return i;
+				}
+			}
+			return -1;
+		}
+	}
+	
+	public synchronized int getSendIntentId(){
+		sendIntentId++;
+		return sendIntentId;
+	}
+	
 	
 	// 経路の自動修復
-	public void localRepair(RouteTable route, final int port, byte[] myAdd,final AODV_Service mAODV_Service){
+	public void localRepair(RouteTable route, byte[] myAdd,final AODV_Service mAODV_Service){
 		
 		// ***** RREQの送信 *****
 		int TTL = MIN_REPAIR_TTL + LOCAL_ADD_TTL;
@@ -791,14 +877,14 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 		seqNum++;
 		
 		// 自分が送信したパケットを受信しないようにIDを登録
-		newPastRReq(RREQ_ID, myAdd);
+		newPastRREQ(RREQ_ID, myAdd);
 		
 		do_BroadCast = true;
 		
 		try {
 			RREQ.send(route.toIpAdd, myAdd
 					, false, false, false, false, false
-					, route.toSeqNum, seqNum, RREQ_ID, TTL, port, null, mAODV_Service);
+					, route.toSeqNum, seqNum, RREQ_ID, TTL, null, mAODV_Service);
 		} catch (Exception ex3) {
 			ex3.printStackTrace();
 		}
@@ -817,20 +903,90 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 					// 経路が追加されていて、かつホップ数が修復前以下なら、修復完了
 					// それ以外の場合、RERRを送信する
 					if(index == -1){
-						new RERR().RERR_Sender(route_f,port);
+						new RERR().RERR_Sender(route_f,mAODV_Service);
 						
 						final byte[] destination_address = route_f.toIpAdd;
-						mAODV_Service.appendMessageOnActivity(AODV_Service.getStringByByteAddress(destination_address)+" disconnected\n");
+						appendMessageOnActivity(AODV_Service.getStringByByteAddress(destination_address)+" disconnected\n");
 					}
 					else{
 						// ホップ数が増加した場合
 						if(getRoute(index).hopCount > route_f.hopCount){
-							new RERR().RERR_Sender(route_f,port);
+							new RERR().RERR_Sender(route_f,mAODV_Service);
 						}
 					}
 				}
 			}, waitTime);
 	}
+	
+	// ルートテーブルに従った方法で送信を行う
+	public void send(byte[] buffer, byte[] ipAddress){
+		send(buffer, ipAddress, buffer.length);
+	}
+	public void send(byte[] buffer, byte[] ipAddress, int length){
+		
+		boolean btFlag = false;
+		
+		if(getStringByByteAddress(ipAddress).equals("255.255.255.255")){
+			if(mChatService != null){
+				btFlag = true;
+			}
+			else{
+				btFlag = false;
+			}
+		}else{
+			int index = searchToAdd(ipAddress);
+			if(index != -1){
+				RouteTable route = getRoute(index);
+				btFlag = route.bluetoothFlag;
+			}
+		}
+		
+		if(btFlag){
+			// BT ON
+			// ブロードキャスト？
+			if(getStringByByteAddress(ipAddress).equals("255.255.255.255")){
+				mChatService.write(buffer);
+			}else{
+				// ユニキャスト
+				mChatService.write(buffer, ipAddress);
+			}
+		}else{
+			// BT OFF
+			// データグラムソケットを開く
+			DatagramSocket soc = null;
+			try {
+				soc = new DatagramSocket();
+			} catch (SocketException e) {
+				// TODO 自動生成された catch ブロック
+				e.printStackTrace();
+			}
+
+	        // UDPパケットを送信する先となるブロードキャストアドレス
+	        InetSocketAddress remoteAddress =
+	        			 new InetSocketAddress(getStringByByteAddress(ipAddress), 12345);
+
+	        // UDPパケット
+	        DatagramPacket sendPacket = null;
+			try {
+				sendPacket = new DatagramPacket(buffer, length, remoteAddress);
+			} catch (SocketException e) {
+				// TODO 自動生成された catch ブロック
+				e.printStackTrace();
+			}
+
+	        // DatagramSocketインスタンスを生成して、UDPパケットを送信
+	        try {
+				soc.send(sendPacket);
+			} catch (IOException e) {
+				// TODO 自動生成された catch ブロック
+				e.printStackTrace();
+			}
+
+	        //データグラムソケットを閉じる
+	        soc.close();
+		}
+	}
+	
 	/*
 	 * Activity関連の仕事代行（代行する必要ないけど...）
 	 * Activityのメッセージ表示欄に表示してほしいStringを送りつける。

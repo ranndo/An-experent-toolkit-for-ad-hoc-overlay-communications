@@ -76,29 +76,13 @@ public class AODV_Activity extends Activity {
 	
 	private BroadcastReceiverAODV_Activity receiver = new BroadcastReceiverAODV_Activity();
 
-
-	
-
-
-
-
-
-
-
-
-	
-
-
-
-
-
-
+	private AODV_Service mAODV_Service;
 
 	// インテントの多重処理制御
 	private static String prev_receive_package_name = null;
 	private static int prev_receive_intent_id = -1;
 
-
+	private boolean timer_stop = false;	//ExpandingRingSerchを終了するためのもの
 
 	/** Called when the activity is first created. */
 	@Override
@@ -129,20 +113,15 @@ public class AODV_Activity extends Activity {
 		// 受信ログ用のTextView、同様にIDから取得
 		//final EditText text_view_received = (EditText) findViewById(R.id.textViewReceived);
 		text_view_received = (EditText) findViewById(R.id.textViewReceived);
-		/********************************/
-		testtext = text_view_received;
 		context = this;
+		mAODV_Service = null;
 		
-
-
-
-
 		// ファイルオープン、同様にIDから取得しクリックイベントを追加
 		Button buttonFileOpen = (Button) findViewById(R.id.buttonFileOpen);
 
 		buttonFileOpen.setOnClickListener(new View.OnClickListener() {
 			public void onClick(View v) {
-				SelectFile();
+				//SelectFile();
 			}
 		});
 
@@ -155,23 +134,23 @@ public class AODV_Activity extends Activity {
 			public void onClick(View v) {
 
 				// editTextから送信先IP(String)、送信元(String)、port(int)の取得
-				String destination_address = editTextDest.getText().toString();	Log.d("eeeee",destination_address);
+				String destination_address = editTextDest.getText().toString();
 				String source_address = editTextSrc.getText().toString();
 				final int destination_port = Integer.parseInt(editTextDestPort
 						.getText().toString());
 
-				byte[] destination_address_b = new RREQ().getByteAddress(destination_address);
-				byte[] source_address_b	= new RREQ().getByteAddress(source_address);
+				byte[] destination_address_b = RREQ.getByteAddress(destination_address);
+				byte[] source_address_b	= RREQ.getByteAddress(source_address);
 
 				// 送信先への経路が存在するかチェック
-				final int index = searchToAdd(destination_address_b);
+				final int index = mAODV_Service.searchToAdd(destination_address_b);
 
 				// 経路が存在する場合、有効かどうかチェック
 				boolean enableRoute = false; // 初期化
 
 				if (index != -1) {
-					if ( getRoute(index).stateFlag == 1 &&
-							(getRoute(index).lifeTime > new Date().getTime())) {
+					if ( mAODV_Service.getRoute(index).stateFlag == 1 &&
+							(mAODV_Service.getRoute(index).lifeTime > new Date().getTime())) {
 						enableRoute = true;
 					}
 				}
@@ -179,7 +158,7 @@ public class AODV_Activity extends Activity {
 				// ********* 経路が既に存在する場合 *******
 				if (enableRoute) {
 					// メッセージの送信
-					sendMessage(getRoute(index).nextIpAdd, getRoute(index).hopCount, destination_port
+					sendMessage(mAODV_Service.getRoute(index).nextIpAdd, mAODV_Service.getRoute(index).hopCount, destination_port
 							, destination_address_b, source_address_b, context);
 
 					// 送信したことを表示
@@ -215,16 +194,16 @@ public class AODV_Activity extends Activity {
 			public void onClick(View v) {
 
 				// ルートテーブルの表示
-				if(AODV_Activity.routeTable.isEmpty()){
+				if(mAODV_Service.getRouteSize() == 0){
 					text_view_received.append("Route_NotFound\n");
 				}
 				else{
 					RouteTable route;
 
 					text_view_received.append("ToIp,NextIp,Hop,Enable\n");
-					for(int i=0;i<AODV_Activity.routeTable.size();i++){
+					for(int i=0;i<mAODV_Service.getRouteSize();i++){
 						// i番目の経路を取得
-						route = AODV_Activity.getRoute(i);
+						route = mAODV_Service.getRoute(i);
 
 						text_view_received.append( getStringByByteAddress(route.toIpAdd) +",");
 						text_view_received.append( getStringByByteAddress(route.nextIpAdd) +",");
@@ -241,44 +220,27 @@ public class AODV_Activity extends Activity {
 							text_view_received.append("Wi-Fi\n");
 					}
 
-					text_view_received.append(AODV_Activity.routeTable.size()+" RouteFound\n");
+					text_view_received.append(mAODV_Service.getRouteSize()+" RouteFound\n");
 
 					text_view_received.setSelection(text_view_received.getText().length());
 				}
-				if(mChatService != null){
-					String s = mChatService.showConnection();
-					if(s != null){
-						text_view_received.append(s);
-						text_view_received.setSelection(text_view_received.getText().length());
-					}
-					else{
-						text_view_received.append("BTnotConnect\n");
-						text_view_received.setSelection(text_view_received.getText().length());
-					}
-				}
+//				if(mChatService != null){
+//					String s = mChatService.showConnection();
+//					if(s != null){
+//						text_view_received.append(s);
+//						text_view_received.setSelection(text_view_received.getText().length());
+//					}
+//					else{
+//						text_view_received.append("BTnotConnect\n");
+//						text_view_received.setSelection(text_view_received.getText().length());
+//					}
+//				}
 			}
 		});
 		
-        // Get local Bluetooth adapter
-        mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-        // if BT is enabled, start setup
-        if (mBluetoothAdapter != null) {
-            if (mBluetoothAdapter.isEnabled()) {
-            	setupChat();
-            	
-                // Only if the state is STATE_NONE, do we know that we haven't started already
-                if (mChatService.getState() == BluetoothChatService.STATE_NONE) {
-                  // Start the Bluetooth chat services
-                  mChatService.start();
-                }
-            }
-        }
-        
-        
-        
-		// ログデータベースの書き込み準備
-		LogDataBaseOpenHelper DBhelper = new LogDataBaseOpenHelper(getApplicationContext());
-		log_db = DBhelper.getWritableDatabase();
+		// スタートサービス
+		startService(new Intent(context, AODV_Service.class));
+
 
 		// 他画面から遷移したときはonNewIntentを通らないため、こちらで処理
 		Intent intent = getIntent();
@@ -315,7 +277,7 @@ public class AODV_Activity extends Activity {
 				String task = intent.getStringExtra("TASK");
 
 				// schemeが"connect"なら
-				if("connect".equals(uri.getScheme())){
+				if("connect".equals(uri.getScheme()) && mAODV_Service != null){
 					// 変数内の値が消えている場合がある？
 					//editTextDest = (EditText)findViewById(R.id.editTextDest);
 					//editTextToBeSent = (EditText)findViewById(R.id.editTextToBeSent);
@@ -330,21 +292,21 @@ public class AODV_Activity extends Activity {
 					final int destination_port = Integer.parseInt(editTextDestPort
 							.getText().toString());
 
-					byte[] destination_address_b = new RREQ().getByteAddress(destination_address);
-					byte[] source_address_b	= new RREQ().getByteAddress(source_address);
+					byte[] destination_address_b = RREQ.getByteAddress(destination_address);
+					byte[] source_address_b	= RREQ.getByteAddress(source_address);
 
 					// UIの出力先を取得
 					//final EditText text_view_received = (EditText) findViewById(R.id.textViewReceived);
 
 					// 送信先への経路が存在するかチェック
-					final int index = searchToAdd(destination_address_b);
+					final int index = mAODV_Service.searchToAdd(destination_address_b);
 
 					// 経路が存在する場合、有効かどうかチェック
 					boolean enableRoute = false; // 初期化
 
 					if (index != -1) {
-						if ( getRoute(index).stateFlag == 1 &&
-								(getRoute(index).lifeTime > new Date().getTime())) {
+						if ( mAODV_Service.getRoute(index).stateFlag == 1 &&
+								(mAODV_Service.getRoute(index).lifeTime > new Date().getTime())) {
 							enableRoute = true;
 						}
 					}
@@ -362,7 +324,7 @@ public class AODV_Activity extends Activity {
 					// ********* 経路が既に存在する場合 *******
 					if (enableRoute) {
 						// メッセージの送信
-						sendMessage(getRoute(index).nextIpAdd, getRoute(index).hopCount, destination_port
+						sendMessage(mAODV_Service.getRoute(index).nextIpAdd, mAODV_Service.getRoute(index).hopCount, destination_port
 								, destination_address_b, source_address_b, etc_context);
 
 						// 送信したことを表示
@@ -395,30 +357,31 @@ public class AODV_Activity extends Activity {
 	@Override
 	protected void onResume() {
 		super.onResume();
-
-		WifiManager wifi = (WifiManager)getSystemService(WIFI_SERVICE);
-		network_interface = wifi.getConnectionInfo().getSSID();
-		if(network_interface == null){
-			network_interface = "other";
-		}
-
-		Log.d("onResume()","onresume()");
+		
+		// bindService
+		mAODV_Service = null;
+		Intent intent = new Intent(context, AODV_Service.class);
+		intent.setPackage(context.getPackageName());
+		context.bindService(intent, connection, Context.BIND_AUTO_CREATE);
+		
+		// setListener
+		IntentFilter filter = new IntentFilter(getString(R.string.AODV_ActivityReceiver));
+		registerReceiver(receiver, filter);
+		//Log.d("onResume()","onresume()");
 	}
 	
 
 
 	// ルート作成＋メッセージ送信
-	public static void routeCreate(String destination_address, String source_address, final int destination_port
+	public void routeCreate(String destination_address, String source_address, final int destination_port
 			, int search_result, EditText output_view, final Context context_){
 
 		Log.d("debug", "Send__Start");
 
 		// 送信先,送信元IPアドレスのbyte[]化
-		final byte[] destination_address_b = new RREQ()
-				.getByteAddress(destination_address);
+		final byte[] destination_address_b = RREQ.getByteAddress(destination_address);
 
-		final byte[] source_address_b = new RREQ()
-		.getByteAddress(source_address);
+		final byte[] source_address_b = RREQ.getByteAddress(source_address);
 
 		// 検索結果を利用
 		int index = search_result;
@@ -427,37 +390,37 @@ public class AODV_Activity extends Activity {
 		final EditText text_view_received = output_view;
 
 		// 自身のシーケンス番号をインクリメント
-		seqNum++;
+		mAODV_Service.seqNumIncrement();
 
 		// もし宛先がブロードキャストアドレスならExpandingRingSearchを行わない
-		if( BLOAD_CAST_ADDRESS.equals(destination_address)){
+		if( AODV_Service.BLOAD_CAST_ADDRESS.equals(destination_address)){
 
 			// メッセージ抽出
 			String text = editTextToBeSent.getText().toString();
 
 			// RREQ_IDをインクリメント
-			RREQ_ID++;
+			mAODV_Service.RREQ_ID_Increment();
 
 			// 自分が送信したパケットを受信しないようにIDを登録
-			newPastRReq(RREQ_ID, source_address_b);
+			mAODV_Service.newPastRREQ(mAODV_Service.getRREQ_ID(), source_address_b);
 
 			// RREQの送信
-			do_BroadCast = true;
+			mAODV_Service.setDoBroadcast(true);
 
 			try {
-				new RREQ().send(destination_address_b,
-								source_address_b,
-								false,
-								false,
-								true,
-								false,
-								true,
-								0,
-								seqNum,
-								RREQ_ID,
-								NET_DIAMETER,
-								destination_port,
-								text);
+				RREQ.send(	destination_address_b,
+							source_address_b,
+							false,
+							false,
+							true,
+							false,
+							true,
+							0,
+							mAODV_Service.getSeqNum(),
+							mAODV_Service.getRREQ_ID(),
+							AODV_Service.NET_DIAMETER,
+							text,
+							mAODV_Service);
 			} catch (Exception e) {
 				e.printStackTrace();
 			}
@@ -472,12 +435,12 @@ public class AODV_Activity extends Activity {
 
 			// 無効経路が存在するなら、その情報を流用
 			if (index != -1) {
-				TTL_VALUE = getRoute(index).hopCount + TTL_INCREMENT;
+				AODV_Service.TTL_VALUE = mAODV_Service.getRoute(index).hopCount + AODV_Service.TTL_INCREMENT;
 				flagU = false;
-				seqValue = getRoute(index).toSeqNum;
+				seqValue = mAODV_Service.getRoute(index).toSeqNum;
 			}
 			else{
-				TTL_VALUE = TTL_START;
+				AODV_Service.TTL_VALUE = AODV_Service.TTL_START;
 				flagU = true;
 				seqValue = 0;
 			}
@@ -486,7 +449,7 @@ public class AODV_Activity extends Activity {
 			timer_stop = false;		//timer_stopを初期化
 			final Handler mHandler = new Handler();
 
-			RING_TRAVERSAL_TIME = 2 * NODE_TRAVERSAL_TIME * (TTL_VALUE + TIMEOUT_BUFFER);
+			AODV_Service.RING_TRAVERSAL_TIME = 2 * AODV_Service.NODE_TRAVERSAL_TIME * (AODV_Service.TTL_VALUE + AODV_Service.TIMEOUT_BUFFER);
 
 			try {
 				new Thread(new Runnable() {
@@ -503,14 +466,14 @@ public class AODV_Activity extends Activity {
 
 										// 以下、定期処理の内容
 										// 経路が完成した場合、ループを抜ける
-										if ( (index_new =searchToAdd(destination_address_b)) != -1) {
+										if ( (index_new = mAODV_Service.searchToAdd(destination_address_b)) != -1) {
 											text_view_received
 													.append("Route_Create_Success!!\n");
 
 											timer_stop = true;
 
 											// メッセージの送信
-											RouteTable rt = getRoute(index_new);
+											RouteTable rt = mAODV_Service.getRoute(index_new);
 											sendMessage(rt.nextIpAdd, rt.hopCount,
 													destination_port, rt.toIpAdd, myAdd, context_);
 
@@ -520,7 +483,7 @@ public class AODV_Activity extends Activity {
 										}
 
 										// TTLが上限値なRREQを送信済みならループを抜ける
-										else if (TTL_VALUE == (TTL_THRESHOLD + TTL_INCREMENT)) {
+										else if (AODV_Service.TTL_VALUE == (AODV_Service.TTL_THRESHOLD + AODV_Service.TTL_INCREMENT)) {
 											text_view_received
 													.append("Failed\n");
 											timer_stop = true;
@@ -529,44 +492,44 @@ public class AODV_Activity extends Activity {
 										// TTLの微調整
 										// 例えばINCREMENT2,THRESHOLD7のとき,TTLの変化は2->4->6->7(not
 										// 8)
-										if (TTL_VALUE > TTL_THRESHOLD) {
-											TTL_VALUE = TTL_THRESHOLD;
+										if (AODV_Service.TTL_VALUE > AODV_Service.TTL_THRESHOLD) {
+											AODV_Service.TTL_VALUE = AODV_Service.TTL_THRESHOLD;
 										}
 
 										// RREQ_IDをインクリメント
-										RREQ_ID++;
+										mAODV_Service.RREQ_ID_Increment();
 
 										// 自分が送信したパケットを受信しないようにIDを登録
-										newPastRReq(RREQ_ID, myAdd);
+										mAODV_Service.newPastRREQ(mAODV_Service.getRREQ_ID(), myAdd);
 
 										// RREQの送信
-										do_BroadCast = true;
+										mAODV_Service.setDoBroadcast(true);
 
 										try {
-											new RREQ().send(destination_address_b,
-															myAdd,
-															false,
-															false,
-															false,
-															false,
-															flagU,
-															seqValue,
-															seqNum,
-															RREQ_ID,
-															TTL_VALUE,
-															destination_port,
-															null);
+											RREQ.send(destination_address_b,
+														myAdd,
+														false,
+														false,
+														false,
+														false,
+														flagU,
+														seqValue,
+														mAODV_Service.getSeqNum(),
+														mAODV_Service.getRREQ_ID(),
+														AODV_Service.TTL_VALUE,
+														null,
+														mAODV_Service);
 										} catch (Exception e) {
 											e.printStackTrace();
 										}
 
 										// ちょっと強引な待機(本来はRREPが戻ってくれば待たなくていい時間も待っている)
 										// 待ち時間をVALUEに合わせて更新
-										RING_TRAVERSAL_TIME = 2
-												* NODE_TRAVERSAL_TIME
-												* (TTL_VALUE + TIMEOUT_BUFFER);
+										AODV_Service.RING_TRAVERSAL_TIME = 2
+												* AODV_Service.NODE_TRAVERSAL_TIME
+												* (AODV_Service.TTL_VALUE + AODV_Service.TIMEOUT_BUFFER);
 
-										TTL_VALUE += TTL_INCREMENT;
+										AODV_Service.TTL_VALUE += AODV_Service.TTL_INCREMENT;
 									}
 
 								}
@@ -574,7 +537,7 @@ public class AODV_Activity extends Activity {
 							});
 							// 指定の時間停止する
 							try {
-								Thread.sleep(RING_TRAVERSAL_TIME);
+								Thread.sleep(AODV_Service.RING_TRAVERSAL_TIME);
 							} catch (InterruptedException e) {
 							}
 
@@ -593,46 +556,56 @@ public class AODV_Activity extends Activity {
 
 	}
 
-	public static	SelectFileDialog	_dlgSelectFile;
-
-
-	private	void	SelectFile()
-	{
-		//ここで画面回転を固定すべき（画面が固定されていないなら）
-
-		_dlgSelectFile = new SelectFileDialog(context,new Handler(),editTextToBeSent);
-		_dlgSelectFile.Show("/data/data/jp.ac.ehime_u.cite.udptest/files/");
-	}
+//	public static	SelectFileDialog	_dlgSelectFile;
+//
+//
+//	private	void	SelectFile()
+//	{
+//		//ここで画面回転を固定すべき（画面が固定されていないなら）
+//
+//		_dlgSelectFile = new SelectFileDialog(context,new Handler(),editTextToBeSent);
+//		_dlgSelectFile.Show("/data/data/jp.ac.ehime_u.cite.udptest/files/");
+//	}
 	
 	@Override
 	public void onStart() {
 		super.onStart();
-		IntentFilter filter = new IntentFilter(getString(R.string.AODV_ActivityReceiver));
-		registerReceiver(receiver, filter);
 	}
 
 	@Override
 	public void onPause()
 	{
-		if(_dlgSelectFile != null)
-			_dlgSelectFile.onPause();
-
+//		if(_dlgSelectFile != null)
+//			_dlgSelectFile.onPause();
+		// unbindService
+		unbindService(connection);
+		// unsetListener
+		unregisterReceiver(receiver);
 		super.onPause();
 	}
 	
 	@Override
 	public void onStop() {
 		super.onStop();
-		unregisterReceiver(receiver);
 	}
 
 	public void onDestroy(){
-		if (mChatService != null){
-			mChatService.stop();
-		}
-		
 		super.onDestroy();
 	}
+	
+	// bindコネクション
+	private ServiceConnection connection = new ServiceConnection() {
+		@Override
+		public void onServiceDisconnected(ComponentName name) {
+			// TODO 自動生成されたメソッド・スタブ
+			mAODV_Service = null;
+		}
+		@Override
+		public void onServiceConnected(ComponentName name, IBinder service) {
+			// TODO 自動生成されたメソッド・スタブ
+			mAODV_Service = ((AODV_Service.AODV_ServiceBinder)service).getService();
+		}
+	};
 	
 	// Service->Android 通信用
 	public class BroadcastReceiverAODV_Activity extends BroadcastReceiver {
@@ -683,22 +656,22 @@ public class AODV_Activity extends Activity {
             
             // Bluetooth.on/off
             // If the adapter is null, then Bluetooth is not supported
-            if (mBluetoothAdapter == null) {
-                Toast.makeText(this, "Bluetooth is not available", Toast.LENGTH_LONG).show();
-            }
-            else{
-	            // If BT is not on, request that it be enabled.
-	            // setupChat() will then be called during onActivityResult
-	            if (!mBluetoothAdapter.isEnabled()) {
-	                Intent enableIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-	                startActivityForResult(enableIntent, REQUEST_ENABLE_BT);
-	            // Otherwise, BT to OFF.
-	            // End BTService
-	            } else {
-	            	if (mChatService != null) mChatService.stop();
-	                mBluetoothAdapter.disable();
-	            }
-            }
+//            if (mBluetoothAdapter == null) {
+//                Toast.makeText(this, "Bluetooth is not available", Toast.LENGTH_LONG).show();
+//            }
+//            else{
+//	            // If BT is not on, request that it be enabled.
+//	            // setupChat() will then be called during onActivityResult
+//	            if (!mBluetoothAdapter.isEnabled()) {
+//	                Intent enableIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+//	                startActivityForResult(enableIntent, REQUEST_ENABLE_BT);
+//	            // Otherwise, BT to OFF.
+//	            // End BTService
+//	            } else {
+//	            	if (mChatService != null) mChatService.stop();
+//	                mBluetoothAdapter.disable();
+//	            }
+//            }
             
         	return true;
         // 終了メニューが押されたとき
@@ -739,79 +712,28 @@ public class AODV_Activity extends Activity {
         return super.onOptionsItemSelected(item);
     }
 
-    public void onActivityResult(int requestCode, int resultCode, Intent data) {
-        Log.d(this.getLocalClassName(), "onActivityResult " + resultCode);
-        switch (requestCode) {
-        case REQUEST_ENABLE_BT:
-            // When the request to enable Bluetooth returns
-            if (resultCode == Activity.RESULT_OK) {
-                // Bluetooth is now enabled, so set up a chat session
-                setupChat();
-                
-                // Only if the state is STATE_NONE, do we know that we haven't started already
-                if (mChatService.getState() == BluetoothChatService.STATE_NONE) {
-                  // Start the Bluetooth chat services
-                  mChatService.start();
-                }
-            } else {
-                // User did not enable Bluetooth or an error occured
-                Log.d(this.getLocalClassName(), "BT not enabled");
-                Toast.makeText(this, R.string.bt_not_enabled_leaving, Toast.LENGTH_SHORT).show();
-            }
-        }
-    }
-    
-    private void setupChat() {
-        Log.d(this.getLocalClassName(), "setupChat()");
-
-        // Initialize the BluetoothChatService to perform bluetooth connections
-        mChatService = new BluetoothChatService(this, mHandler);
-    }
-    
-    // The Handler that gets information back from the BluetoothChatService
-    private final Handler mHandler = new Handler() {
-        @Override
-        public void handleMessage(Message msg) {
-            switch (msg.what) {
-            case MESSAGE_STATE_CHANGE:
-                Log.i(getLocalClassName(), "MESSAGE_STATE_CHANGE: " + msg.arg1);
-                setTitle("StateChange:"+msg.arg1);
-                switch (msg.arg1) {
-                case BluetoothChatService.STATE_CONNECTED:
-                    break;
-                case BluetoothChatService.STATE_CONNECTING:
-                    break; 
-                case BluetoothChatService.STATE_LISTEN:
-                case BluetoothChatService.STATE_NONE:
-                    break;
-                }
-                break;
-            case MESSAGE_WRITE:
-//                byte[] writeBuf = (byte[]) msg.obj;
-//                // construct a string from the buffer
-//                String writeMessage = new String(writeBuf);
-                break;
-            case MESSAGE_READ:
-//                byte[] readBuf = (byte[]) msg.obj;
-//                // construct a string from the valid bytes in the buffer
-//                String readMessage = new String(readBuf, 0, msg.arg1);
-//                if (readMessage.length() > 0) {
-//                    mConversationArrayAdapter.add(mConnectedDeviceName+":  " + readMessage);
+//    public void onActivityResult(int requestCode, int resultCode, Intent data) {
+//        Log.d(this.getLocalClassName(), "onActivityResult " + resultCode);
+//        switch (requestCode) {
+//        case REQUEST_ENABLE_BT:
+//            // When the request to enable Bluetooth returns
+//            if (resultCode == Activity.RESULT_OK) {
+//                // Bluetooth is now enabled, so set up a chat session
+//                setupChat();
+//                
+//                // Only if the state is STATE_NONE, do we know that we haven't started already
+//                if (mChatService.getState() == BluetoothChatService.STATE_NONE) {
+//                  // Start the Bluetooth chat services
+//                  mChatService.start();
 //                }
-                break;
-            case MESSAGE_DEVICE_NAME:
-                // save the connected device's name
-            	
-                break;
-            case MESSAGE_TOAST:
-            	//if (!msg.getData().getString(TOAST).contains("Unable to connect device")) {
-//                    Toast.makeText(getApplicationContext(), msg.getData().getString(TOAST),
-//                            Toast.LENGTH_SHORT).show();
-            	//}
-                break;
-            }
-        }
-    };
+//            } else {
+//                // User did not enable Bluetooth or an error occured
+//                Log.d(this.getLocalClassName(), "BT not enabled");
+//                Toast.makeText(this, R.string.bt_not_enabled_leaving, Toast.LENGTH_SHORT).show();
+//            }
+//        }
+//    }
+    
 
 	// ログの表示用EditTextのサイズを画面サイズに合わせて動的に決定
 	// OnCreate()ではまだViewがレイアウトが初期化されていないため？
@@ -866,7 +788,7 @@ public class AODV_Activity extends Activity {
 	// [1-4]	:宛先アドレス
 	// [5-8]	:送信元アドレス
 	// [9-?]	:データ
-	private static byte[] addMessageTypeString(byte[] message,byte[] toIPAddress,byte[] my_address) {
+	private byte[] addMessageTypeString(byte[] message,byte[] toIPAddress,byte[] my_address) {
 		byte[] new_message = new byte[1 + 4 + 4 + message.length];
 
 		new_message[0] = 0; // メッセージタイプ0
@@ -908,7 +830,7 @@ public class AODV_Activity extends Activity {
 		return new_message;
 	}
 
-	public static void sendMessage(byte[] destination_next_hop_address_b, int hop_count, int destination_port
+	public void sendMessage(byte[] destination_next_hop_address_b, int hop_count, int destination_port
 			, byte[] destination_address_b, byte[] source_address_b, Context context_){
 
 		//editTextToBeSent = (EditText)findViewById(R.id.editTextToBeSent);
@@ -1023,7 +945,7 @@ public class AODV_Activity extends Activity {
 					destination_address_b, source_address_b);
 
 			// 送信try
-			SendByteArray.send(buffer, destination_next_hop_address_b);
+			mAODV_Service.send(buffer, destination_next_hop_address_b);
 //		}
 
 

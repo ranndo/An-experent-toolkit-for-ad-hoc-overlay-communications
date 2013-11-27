@@ -1,38 +1,17 @@
 ﻿package jp.ac.ehime_u.cite.udptest;
 
 
-import java.io.BufferedOutputStream;
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.ObjectOutputStream.PutField;
-import java.io.UnsupportedEncodingException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.net.SocketException;
-import java.net.UnknownHostException;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Date;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Locale;
 
-import android.app.Activity;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.net.Uri;
-import android.os.Debug;
-import android.os.Handler;
+import android.content.ServiceConnection;
+import android.os.IBinder;
 import android.util.Log;
-import android.widget.EditText;
-import android.widget.ScrollView;
 
 public class UdpListener implements Runnable {
 
@@ -43,7 +22,9 @@ public class UdpListener implements Runnable {
 	private int port;
 	private DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
 	private DatagramSocket socket;
-	private ReceiveProcess receiveProcess;
+	
+	private byte[] my_address;
+	private AODV_Service mAODV_Service;
 
 	// コンストラクタ
 	// 引数1:Handler	メインスレッドのハンドル(Handlerを使うことでUIスレッドの持つキューにジョブ登録ができる)
@@ -54,29 +35,64 @@ public class UdpListener implements Runnable {
 		port = port_;
 		socket = new DatagramSocket(port);
 		context = context_;
-		receiveProcess = new ReceiveProcess(port_, context_);
+		
+		StaticIpAddress sIp = new StaticIpAddress(context_);
+		my_address = sIp.getStaticIpByte();
+		
+		mAODV_Service = null;
+		Intent intent = new Intent(context, AODV_Service.class);
+		intent.setPackage(context.getPackageName());
+		context.bindService(intent, connection, Context.BIND_AUTO_CREATE);
 	}
 
 	@Override
 	public void run() {
 		while (true) {
+			if(mAODV_Service != null){
+				break;
+			}
+			try {
+				Thread.sleep(1000);
+			} catch (InterruptedException e) {
+				// TODO 自動生成された catch ブロック
+				e.printStackTrace();
+			}
+		}
+		
+		while (true) {
 			try {
 				socket.receive(packet); // blocking
-
+				
 				// 受信したデータを抽出	received_dataをreceiveBufferに変更したよ
 				byte[] receiveBuffer = cut_byte_spare(packet.getData() ,packet.getLength());
 				
-				receiveProcess.process(receiveBuffer, packet.getAddress().getAddress(), false);
+				ReceiveProcess.process(receiveBuffer, packet.getAddress().getAddress(), false, my_address, context, mAODV_Service);
 				
 			} catch (IOException e) {
 
 				e.printStackTrace();
 			} finally{
-				receiveProcess.stop();
+				if(mAODV_Service != null)
+					context.unbindService(connection);
 			}
 		}
 	}
 
+	// コネクション生成
+	private ServiceConnection connection = new ServiceConnection() {
+		
+		@Override
+		public void onServiceDisconnected(ComponentName name) {
+			// TODO 自動生成されたメソッド・スタブ
+			mAODV_Service = null;
+		}
+		
+		@Override
+		public void onServiceConnected(ComponentName name, IBinder service) {
+			// TODO 自動生成されたメソッド・スタブ
+			mAODV_Service = ((AODV_Service.AODV_ServiceBinder)service).getService();
+		}
+	};
 
 	// バイト配列の取り出し（余分な部分の削除）
 	byte[] cut_byte_spare(byte[] b,int size){

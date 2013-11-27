@@ -55,7 +55,7 @@ public class BluetoothChatService{
 
     // Member fields
     private final BluetoothAdapter mAdapter;
-    private final Handler mHandler;
+//    private final Handler mHandler;
     private AcceptThread mAcceptThread;
     private ConnectThread mConnectThread;
     private ConnectedThread mConnectedThread;
@@ -90,6 +90,10 @@ public class BluetoothChatService{
     public static final int FRAGMENT_HEADER_SIZE = 10;
     public static final int FRAGMENT_HASH_SIZE = 16;
     
+    private Context context;
+    private AODV_Service mAODV_Service;
+    private byte[] my_address;
+    
     // synchronized
     private Object mConnThreadsLock = new Object();
     
@@ -98,10 +102,10 @@ public class BluetoothChatService{
      * @param context  The UI Activity Context
      * @param handler  A Handler to send messages back to the UI Activity
      */
-    public BluetoothChatService(Context context, Handler handler) {
+    public BluetoothChatService(Context context_, AODV_Service binder, byte[] myAddress) {
         mAdapter = BluetoothAdapter.getDefaultAdapter();
         mState = STATE_NONE;
-        mHandler = handler;
+//        mHandler = handler;
         mDeviceAddresses = new ArrayList<String>();
         synchronized(mConnThreadsLock){
         	mConnThreads = new ArrayList<ConnectedDeviceManager>();
@@ -123,6 +127,10 @@ public class BluetoothChatService{
         for(int i=0;i<connectState.length;i++)connectState[i] = false;
         
         fragmentId = 0;
+        
+        context = context_;
+        mAODV_Service = binder;
+        my_address = myAddress;
     }
 
     /**
@@ -134,7 +142,7 @@ public class BluetoothChatService{
         mState = state;
 
         // Give the new state to the Handler so the UI Activity can update
-        mHandler.obtainMessage(AODV_Activity.MESSAGE_STATE_CHANGE, state, -1).sendToTarget();
+//        mHandler.obtainMessage(AODV_Activity.MESSAGE_STATE_CHANGE, state, -1).sendToTarget();
     }
 
     /**
@@ -273,7 +281,7 @@ public class BluetoothChatService{
         setState(STATE_CONNECTED);
         
         // 初回送信・Ipアドレスを通知
-    	StaticIpAddress sIp = new StaticIpAddress(AODV_Activity.context);
+    	StaticIpAddress sIp = new StaticIpAddress(context);
     	mConnectedThread.write(sIp.getStaticIpByte());
     	mConnectedThread = null;
     	
@@ -765,7 +773,7 @@ public class BluetoothChatService{
 	                    // 1バイトならIpAddressを送る
 	                    if(bytes == 1){
 	                        // Ipアドレスを通知
-	                    	StaticIpAddress sIp = new StaticIpAddress(AODV_Activity.context);
+	                    	StaticIpAddress sIp = new StaticIpAddress(context);
 	                    	this.write(sIp.getStaticIpByte());
 	                    }
 	                    else{
@@ -819,7 +827,7 @@ public class BluetoothChatService{
 		                    				receiveData(bufferMtuSize, preHopAddress);
 		                    			}
 		                    			else{
-		                    				AODV_Activity.receiveProcess.process(bufferMtuSize, preHopAddress, true);
+		                    				ReceiveProcess.process(bufferMtuSize, preHopAddress, true, my_address, context, mAODV_Service);
 		                    			}
 	                    			}
 	                    		}
@@ -842,7 +850,7 @@ public class BluetoothChatService{
 	                    				receiveData(cutBuffer, preHopAddress);
 	                    			}
 	                    			else{
-	                    				AODV_Activity.receiveProcess.process(cutBuffer, preHopAddress, true);
+	                    				ReceiveProcess.process(cutBuffer, preHopAddress, true, my_address, context, mAODV_Service);
 	                    			}
 	                    		}
 		                    }
@@ -987,7 +995,7 @@ public class BluetoothChatService{
     				
 	    	    	if(Arrays.equals(hash, hash2)){
         				// 結合データを処理部に渡す
-        				AODV_Activity.receiveProcess.process(data, preHopAddress, true);
+        				ReceiveProcess.process(data, preHopAddress, true, my_address, context, mAODV_Service);
 	    	    	}
 	    	    	else{
 	    	    		Log.d("Hash","HashError");
@@ -1008,10 +1016,6 @@ public class BluetoothChatService{
             try {
                 mmOutStream.write(buffer);
                 Log.d(getName(), "送信バイト:"+buffer.length);
-
-                // Share the sent message back to the UI Activity
-                mHandler.obtainMessage(AODV_Activity.MESSAGE_WRITE, -1, -1, buffer)
-                        .sendToTarget();
             } catch (IOException e) {
                 Log.e(TAG, "Exception during write", e);
             }
@@ -1153,15 +1157,15 @@ public class BluetoothChatService{
             
             // Register for broadcasts when a device is discovered
             IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
-            AODV_Activity.context.registerReceiver(mReceiver, filter);
+            context.registerReceiver(mReceiver, filter);
 
             // Register for broadcasts when discovery has finished
             filter = new IntentFilter(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
-            AODV_Activity.context.registerReceiver(mReceiver, filter);
+            context.registerReceiver(mReceiver, filter);
             
             // Test
             filter = new IntentFilter(BluetoothDevice.ACTION_ACL_DISCONNECTED);
-            AODV_Activity.context.registerReceiver(mReceiver, filter);
+            context.registerReceiver(mReceiver, filter);
             
             // X秒毎に定期処理
             timer = new Timer(false);
@@ -1240,7 +1244,7 @@ public class BluetoothChatService{
         };
 
         public void cancel() {
-        	AODV_Activity.context.unregisterReceiver(mReceiver);
+        	context.unregisterReceiver(mReceiver);
         	
             if (D) Log.d(TAG, "cancel " + this);
             

@@ -26,9 +26,12 @@
                 <data android:scheme="connect" />
 			</intent-filter>
 		</activity>
+		
 		<receiver android:name=".BroadcastReceiver"
 		    android:exported="false" />
+		
 		<activity android:name=".RouteActivity"></activity>
+		
 		<service android:name=".AODV_Service">
 			<intent-filter>
 				<!-- バインドの対象となるサービスで提供するインターフェース -->

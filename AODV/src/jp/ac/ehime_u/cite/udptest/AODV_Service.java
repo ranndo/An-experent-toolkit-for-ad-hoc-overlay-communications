@@ -77,8 +77,10 @@ public class AODV_Service extends Service
 	public Object ackDemandListLock = new Object();
 	public Object RREQ_ID_Lock = new Object();
 	public Object seqNumLock = new Object();
+	public Object receivedProcessLock = new Object();
 	public Object fileManagerLock = new Object();
 	public Object fileReceivedManagerLock = new Object();
+	public boolean routeCreateLock = false;
 	
 	// Bluetooth関連
     // Local Bluetooth adapter
@@ -269,7 +271,9 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 
 				send(buffer, route.nextIpAdd);
 			}
-			else{Log.d("ServiceSearch","X");
+			else if(routeCreateLock == false)
+			{
+				routeCreateLock = true;
 				// 経路がない場合
 
 				// 自身のシーケンス番号をインクリメント
@@ -301,6 +305,7 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 //					} catch (Exception e) {
 //						e.printStackTrace();
 //					}
+					routeCreateLock = false;
 				}
 				// ブロードキャストアドレスじゃない場合
 				// ExpandingRingSearch
@@ -359,19 +364,6 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 											RouteTable route = getRoute(index_new);
 											InetAddress next_hop_inet = null;
 											send(buffer_copy, route.nextIpAdd);
-											
-											try {
-												File file = getFileStreamPath("imagePacket.txt");
-												if(!file.exists()){
-													FileOutputStream out = openFileOutput("imagePacket.txt",MODE_PRIVATE);
-													out.write(buffer_copy);
-													out.close();
-												}
-											} catch (FileNotFoundException e) {
-												e.printStackTrace();
-											} catch (IOException e) {
-												e.printStackTrace();
-											}
 										}
 
 										// TTLが上限値なRREQを送信済みならループを抜ける
@@ -434,10 +426,12 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 										break timer;
 									}
 								}
-							}
+								routeCreateLock = false;
+								}
 						}).start();
 
 					} catch (Exception e) {
+						routeCreateLock = false;
 						e.printStackTrace();
 					}
 
@@ -453,16 +447,6 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 				LogDataBaseOpenHelper.insertLogTableDATA(log_db, 51, MyIP, source_address,
 						destination_address, data.length, package_name, sdf_rint.format(date_rint), network_interface);
 		}
-
-		@Override
-		public void Test() throws RemoteException {
-			// TODO 自動生成されたメソッド・スタブ
-			Log.d("AODV_Service","ToastStart");
-			//Toast.makeText(getApplicationContext(), "Service", Toast.LENGTH_LONG).show();
-			Log.d("AODV_Service","ToastEnd");
-		}
-
-
 	};
 
 	// 自身を返すBinder
@@ -757,6 +741,16 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 	// ルートテーブル中のi番目の要素を返す、排他制御
 	public RouteTable getRoute(int index) {
 		synchronized (routeLock) {
+			
+			Log.d("RouteTable","tableSize = "+routeTable.size()+", index = "+index);
+			for(int i=0;i<routeTable.size();i++){
+				RouteTable route = routeTable.get(i);
+				Log.d("RouteTable","ToAddress:"+getStringByByteAddress(route.toIpAdd));
+				Log.d("RouteTable","NextAddress:"+getStringByByteAddress(route.nextIpAdd));
+				Log.d("RouteTable","State:"+route.stateFlag);
+				Log.d("RouteTable","BT_State:"+Boolean.toString(route.bluetoothFlag));
+			}
+			
 			return routeTable.get(index);
 		}
 	}
@@ -1012,6 +1006,11 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 		SimpleDateFormat sdf_rint = new SimpleDateFormat("yyyy/MM/dd kk:mm:ss SSS", Locale.JAPANESE);
 		LogDataBaseOpenHelper.insertLogTableDATA(log_db, type, myIp, sourceIp,
 				destinationAddress, dataLength, appName, sdf_rint.format(date_rint), network_interface);
+	}
+	
+	// lock
+	public Object getReceivedProcessLock(){
+		return receivedProcessLock;
 	}
 	
     /**

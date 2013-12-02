@@ -270,18 +270,18 @@ public class AODV_Activity extends Activity {
 			// 直前のパッケージ,IDとして記録
 			prev_receive_package_name = package_name;
 			prev_receive_intent_id = intent_id;
-
+		
 			// 起動方法のチェック 暗黙的インテント:SENDTOで起動されていれば
 			if(Intent.ACTION_SENDTO.equals(intent.getAction())){
 				final Uri uri = intent.getData();
 				String task = intent.getStringExtra("TASK");
-
+				
 				// schemeが"connect"なら
-				if("connect".equals(uri.getScheme()) && mAODV_Service != null){
+				if("connect".equals(uri.getScheme())){
 					// 変数内の値が消えている場合がある？
 					//editTextDest = (EditText)findViewById(R.id.editTextDest);
 					//editTextToBeSent = (EditText)findViewById(R.id.editTextToBeSent);
-
+					
 					editTextDest.setText(uri.getEncodedSchemeSpecificPart());
 					editTextToBeSent.setText(task);
 
@@ -298,46 +298,48 @@ public class AODV_Activity extends Activity {
 					// UIの出力先を取得
 					//final EditText text_view_received = (EditText) findViewById(R.id.textViewReceived);
 
-					// 送信先への経路が存在するかチェック
-					final int index = mAODV_Service.searchToAdd(destination_address_b);
-
-					// 経路が存在する場合、有効かどうかチェック
-					boolean enableRoute = false; // 初期化
-
-					if (index != -1) {
-						if ( mAODV_Service.getRoute(index).stateFlag == 1 &&
-								(mAODV_Service.getRoute(index).lifeTime > new Date().getTime())) {
-							enableRoute = true;
+					if(mAODV_Service != null){
+						// 送信先への経路が存在するかチェック
+						final int index = mAODV_Service.searchToAdd(destination_address_b);
+	
+						// 経路が存在する場合、有効かどうかチェック
+						boolean enableRoute = false; // 初期化
+	
+						if (index != -1) {
+							if ( mAODV_Service.getRoute(index).stateFlag == 1 &&
+									(mAODV_Service.getRoute(index).lifeTime > new Date().getTime())) {
+								enableRoute = true;
+							}
 						}
-					}
-
-					Context etc_context = context;
-					// ファイルオープン用に他パッケージアプリのコンテキストを取得
-					if( package_name != null ){
-						try {
-							etc_context = createPackageContext(package_name,0);
-						} catch (NameNotFoundException e) {
-							e.printStackTrace();
+	
+						Context etc_context = context;
+						// ファイルオープン用に他パッケージアプリのコンテキストを取得
+						if( package_name != null ){
+							try {
+								etc_context = createPackageContext(package_name,0);
+							} catch (NameNotFoundException e) {
+								e.printStackTrace();
+							}
 						}
-					}
-
-					// ********* 経路が既に存在する場合 *******
-					if (enableRoute) {
-						// メッセージの送信
-						sendMessage(mAODV_Service.getRoute(index).nextIpAdd, mAODV_Service.getRoute(index).hopCount, destination_port
-								, destination_address_b, source_address_b, etc_context);
-
-						// 送信したことを表示
-						text_view_received.append(editTextToBeSent.getText().toString()
-								+ "-->" + destination_address+"\n");
-					}
-					// *********** 経路が存在しない場合 ***********
-					else {
-						text_view_received.append("Try Connect...\n");
-
-						// 経路作成
-						routeCreate(destination_address, source_address, destination_port, index
-								, text_view_received, etc_context);
+	
+						// ********* 経路が既に存在する場合 *******
+						if (enableRoute) {
+							// メッセージの送信
+							sendMessage(mAODV_Service.getRoute(index).nextIpAdd, mAODV_Service.getRoute(index).hopCount, destination_port
+									, destination_address_b, source_address_b, etc_context);
+	
+							// 送信したことを表示
+							text_view_received.append(editTextToBeSent.getText().toString()
+									+ "-->" + destination_address+"\n");
+						}
+						// *********** 経路が存在しない場合 ***********
+						else {
+							text_view_received.append("Try Connect...\n");
+	
+							// 経路作成
+							routeCreate(destination_address, source_address, destination_port, index
+									, text_view_received, etc_context);
+						}
 					}
 				}
 			}
@@ -345,7 +347,7 @@ public class AODV_Activity extends Activity {
 			// 起動方法のチェック 暗黙的インテント:DELETEで起動されていれば
 			if(Intent.ACTION_DELETE.equals(intent.getAction())){
 				final Uri uri = intent.getData();
-
+				
 				if("path".equals(uri.getScheme())){
 					deleteFile(uri.getEncodedSchemeSpecificPart());
 				}
@@ -362,7 +364,7 @@ public class AODV_Activity extends Activity {
 		mAODV_Service = null;
 		Intent intent = new Intent(context, AODV_Service.class);
 		intent.setPackage(context.getPackageName());
-		context.bindService(intent, connection, Context.BIND_AUTO_CREATE);
+		bindService(intent, connection, Context.BIND_AUTO_CREATE);
 		
 		// setListener
 		IntentFilter filter = new IntentFilter(getString(R.string.AODV_ActivityReceiver));
@@ -466,7 +468,7 @@ public class AODV_Activity extends Activity {
 
 										// 以下、定期処理の内容
 										// 経路が完成した場合、ループを抜ける
-										if ( (index_new = mAODV_Service.searchToAdd(destination_address_b)) != -1) {
+ 										if ( (index_new = mAODV_Service.searchToAdd(destination_address_b)) != -1) {
 											text_view_received
 													.append("Route_Create_Success!!\n");
 
@@ -579,6 +581,7 @@ public class AODV_Activity extends Activity {
 //			_dlgSelectFile.onPause();
 		// unbindService
 		unbindService(connection);
+		mAODV_Service = null;
 		// unsetListener
 		unregisterReceiver(receiver);
 		super.onPause();
@@ -1055,7 +1058,7 @@ public class AODV_Activity extends Activity {
 	}
 	
 	// Log.d
-	public static void logD(String mes){
+//	public static void logD(String mes){
 //		try {
 //			FileOutputStream out = context.openFileOutput("LogD.txt",MODE_PRIVATE | MODE_APPEND);
 //			out.write((mes+System.getProperty("line.separator")).getBytes());
@@ -1065,8 +1068,8 @@ public class AODV_Activity extends Activity {
 //		} catch (IOException e) {
 //			e.printStackTrace();
 //		}
-	}
-	public static void logD(byte[] data){
+//	}
+//	public static void logD(byte[] data){
 //		try {
 //			FileOutputStream out = context.openFileOutput("LogD.txt",MODE_PRIVATE | MODE_APPEND);
 //			out.write(data);
@@ -1076,8 +1079,8 @@ public class AODV_Activity extends Activity {
 //		} catch (IOException e) {
 //			e.printStackTrace();
 //		}
-	}
-	public static void logD(byte[] data,String name){
+//	}
+//	public static void logD(byte[] data,String name){
 //		try {
 //			FileOutputStream out = context.openFileOutput(name,MODE_PRIVATE | MODE_APPEND);
 //			out.write(data);
@@ -1087,5 +1090,5 @@ public class AODV_Activity extends Activity {
 //		} catch (IOException e) {
 //			e.printStackTrace();
 //		}
-	}
+//	}
 }

@@ -7,5 +7,4 @@ interface SendManager{
 		byte flag, String package_name, String intent_action,
 		int intent_flags, String intent_type, String intent_scheme,
 		in List<String> intent_categories,in byte[] data);
-	void Test();
 }

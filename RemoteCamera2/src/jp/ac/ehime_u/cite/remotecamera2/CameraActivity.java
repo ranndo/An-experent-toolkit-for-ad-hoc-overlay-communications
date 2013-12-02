@@ -93,15 +93,6 @@ public class CameraActivity extends Activity {
 				onNewIntent(intent);
 			}
 		}
-
-//		// Serviceにbindする
-//		Intent s_intent = new Intent(SendManager.class.getName());
-//		Boolean bind = bindService(s_intent, serviceConnection, BIND_AUTO_CREATE);
-//		if(bind){
-//			Log.d("BindService","bind成功");
-//		}else{
-//			Log.d("BindService","Bind失敗");
-//		}
 		
 //		// フレームレートオブザーバー
 //		new Thread(new Runnable() {
@@ -209,7 +200,7 @@ public class CameraActivity extends Activity {
 	// メニューの追加
 	public boolean onCreateOptionsMenu(Menu menu) {
 		boolean ret = super.onCreateOptionsMenu(menu);
-		menu.add(0, Menu.FIRST, Menu.NONE, "exit");
+		menu.add(0, Menu.FIRST, Menu.NONE, "send");
 
 		return ret;
 	}
@@ -220,7 +211,7 @@ public class CameraActivity extends Activity {
 		switch (item.getItemId()) {
 
 		case Menu.FIRST:
-			finish();
+			//finish();
 			return true;
 		default:
 			break;

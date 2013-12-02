@@ -72,13 +72,6 @@ this.SendMessage(_arg0, _arg1, _arg2, _arg3, _arg4, _arg5, _arg6, _arg7, _arg8, 
 reply.writeNoException();
 return true;
 }
-case TRANSACTION_Test:
-{
-data.enforceInterface(DESCRIPTOR);
-this.Test();
-reply.writeNoException();
-return true;
-}
 }
 return super.onTransact(code, data, reply, flags);
 }
@@ -121,24 +114,8 @@ _reply.recycle();
 _data.recycle();
 }
 }
-@Override public void Test() throws android.os.RemoteException
-{
-android.os.Parcel _data = android.os.Parcel.obtain();
-android.os.Parcel _reply = android.os.Parcel.obtain();
-try {
-_data.writeInterfaceToken(DESCRIPTOR);
-mRemote.transact(Stub.TRANSACTION_Test, _data, _reply, 0);
-_reply.readException();
-}
-finally {
-_reply.recycle();
-_data.recycle();
-}
-}
 }
 static final int TRANSACTION_SendMessage = (android.os.IBinder.FIRST_CALL_TRANSACTION + 0);
-static final int TRANSACTION_Test = (android.os.IBinder.FIRST_CALL_TRANSACTION + 1);
 }
 public void SendMessage(java.lang.String destination_address, java.lang.String source_address, byte flag, java.lang.String package_name, java.lang.String intent_action, int intent_flags, java.lang.String intent_type, java.lang.String intent_scheme, java.util.List<java.lang.String> intent_categories, byte[] data) throws android.os.RemoteException;
-public void Test() throws android.os.RemoteException;
 }

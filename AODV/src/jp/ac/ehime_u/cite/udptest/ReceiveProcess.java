@@ -280,7 +280,7 @@ public class ReceiveProcess {
 				// 有効な経路を持っていない場合
 
 				// RERRの送信
-				new RERR().RERR_Sender(mAODV_Service.getRoute(index),mAODV_Service);
+				RErr.RERR_Sender(mAODV_Service.getRoute(index),mAODV_Service);
 
     		}
 
@@ -385,7 +385,6 @@ public class ReceiveProcess {
 				index2 = mAODV_Service.searchToAdd(RRep.getToIpAdd(receiveBuffer,mesLength));
 				// RREQ生成ノードへの経路（逆経路）を検索
 				int index3 = mAODV_Service.searchToAdd(RRep.getFromIpAdd(receiveBuffer,mesLength,my_address));
-
 				// 順経路のPrecursorListに、逆経路への次ホップを追加
 				// すでにListに含まれていても、HashSetにより重複は認められないのでOK
 				RouteTable route = mAODV_Service.getRoute(index2);		// 一旦リストから出す

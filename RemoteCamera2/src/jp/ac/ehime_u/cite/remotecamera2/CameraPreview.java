@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.concurrent.Semaphore;
 
 import jp.ac.ehime_u.cite.udptest.SendManager;
 import android.app.Activity;
@@ -25,6 +26,7 @@ import android.hardware.Camera.ShutterCallback;
 import android.hardware.Camera.Size;
 import android.os.Debug;
 import android.os.Handler;
+import android.os.RemoteException;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.Surface;
@@ -42,6 +44,9 @@ class CameraPreview extends SurfaceView implements SurfaceHolder.Callback {
 	protected int preview_width;
 	protected int preview_height;
 	protected int preview_format;
+	
+	// 送信側セマフォ式ロック
+	Semaphore sendLock;
 
 	CameraPreview(Context context) {
 		super(context);
@@ -50,6 +55,8 @@ class CameraPreview extends SurfaceView implements SurfaceHolder.Callback {
 		holder.addCallback(this);
 		holder.setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
 		i = 0;
+		
+		sendLock = new Semaphore(1);
 	}
 
 	@Override
@@ -167,8 +174,12 @@ class CameraPreview extends SurfaceView implements SurfaceHolder.Callback {
 //					}
 //					i++;
 //					if(i==100)
-					new CompressThread(data, i, preview_format,
-							preview_width, preview_height, null, context).start();
+					if(data!=null){
+						if(sendLock.tryAcquire()){
+							new CompressThread(data, i, preview_format,
+									preview_width, preview_height, null, context, sendLock).start();
+						}
+					}
 					
 /* 1s間のトレーシング */
 //					if(i==30){

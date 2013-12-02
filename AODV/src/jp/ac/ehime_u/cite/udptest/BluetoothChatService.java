@@ -24,12 +24,13 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Set;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.UUID;
 
-import android.app.Service;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothServerSocket;
@@ -38,12 +39,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.os.Bundle;
-import android.os.Handler;
-import android.os.IBinder;
-import android.os.Message;
 import android.util.Log;
-import android.widget.EditText;
 
 public class BluetoothChatService{
     // Debugging
@@ -61,9 +57,7 @@ public class BluetoothChatService{
     private ConnectedThread mConnectedThread;
     private int mState;
 
-    private ArrayList<String> mDeviceAddresses;
     private ArrayList<ConnectedDeviceManager> mConnThreads;
-    private ArrayList<BluetoothSocket> mSockets;
     
     // add to Sample by Student
     private AutoConnectingThread mAutoConnectingThread;
@@ -74,6 +68,7 @@ public class BluetoothChatService{
      * is listening for. When accepting incoming connections server listens for all 7 UUIDs. 
      * When trying to form an outgoing connection, the client tries each UUID one at a time. 
      */
+//    private ArrayList<UUID> mUuids;
     private ArrayList<UUID> mUuids;
     private boolean[] connectState;
     
@@ -84,11 +79,15 @@ public class BluetoothChatService{
     public static final int STATE_CONNECTED = 3;  // now connected to a remote device
     
     // fragment data id
-    int fragmentId;
     public static final int FRAGMENT_MTU = 1008;
-    public static final byte FRAGMENT_DATA = 101;
+    public static final byte FRAGMENT_DATA = 103;
     public static final int FRAGMENT_HEADER_SIZE = 10;
     public static final int FRAGMENT_HASH_SIZE = 16;
+    
+    // static ip exchange
+    public static final byte STATIC_IP_REQUEST	= 101;
+    public static final byte STATIC_IP_DATA		= 102;
+    
     
     private Context context;
     private AODV_Service mAODV_Service;
@@ -106,11 +105,8 @@ public class BluetoothChatService{
         mAdapter = BluetoothAdapter.getDefaultAdapter();
         mState = STATE_NONE;
 //        mHandler = handler;
-        mDeviceAddresses = new ArrayList<String>();
-        synchronized(mConnThreadsLock){
-        	mConnThreads = new ArrayList<ConnectedDeviceManager>();
-        }
-        mSockets = new ArrayList<BluetoothSocket>();
+        mConnThreads = new ArrayList<ConnectedDeviceManager>();
+        
         mUuids = new ArrayList<UUID>();
         // 7 randomly-generated UUIDs. These must match on both server and client.
         // mUuids.add(UUID.fromString("00001101-0000-1000-8000-00805F9B34FB"));
@@ -125,8 +121,6 @@ public class BluetoothChatService{
         
         connectState = new boolean[7];
         for(int i=0;i<connectState.length;i++)connectState[i] = false;
-        
-        fragmentId = 0;
         
         context = context_;
         mAODV_Service = binder;
@@ -161,10 +155,7 @@ public class BluetoothChatService{
         if (mConnectThread != null) {mConnectThread.cancel(); mConnectThread = null;}
 
         // Cancel any thread currently running a connection
-        
-        
-        
-        if (mConnectedThread != null) {mConnectedThread.cancel(); mConnectedThread = null;}
+//        if (mConnectedThread != null) {mConnectedThread.cancel(); mConnectedThread = null;}
 
         // Start the thread to listen on a BluetoothServerSocket
         if (mAcceptThread == null) {
@@ -202,7 +193,7 @@ public class BluetoothChatService{
         }
 
         // Cancel any thread currently running a connection
-        if (mConnectedThread != null) {mConnectedThread.cancel(); mConnectedThread = null;}
+//        if (mConnectedThread != null) {mConnectedThread.cancel(); mConnectedThread = null;}
 
         // Create a new thread and attempt to connect to each UUID one-by-one.    
         for (int i = 0; i < 7; i++) {
@@ -240,8 +231,9 @@ public class BluetoothChatService{
         
         // Start the thread to manage the connection and perform transmissions
         synchronized(mConnThreadsLock){
-	        for(int i=0;i<mConnThreads.size();i++){
-	        	ConnectedDeviceManager m = mConnThreads.get(i);
+        	Iterator<ConnectedDeviceManager> it = mConnThreads.iterator();
+	        while(it.hasNext()){
+	        	ConnectedDeviceManager m = it.next();
 	        	if(m.getMacAddress().equals(device.getAddress())){
 	        		// return; // 既存の接続を残す
 	        		// 既存の接続を削除して，新しい接続の登録を続ける
@@ -252,7 +244,8 @@ public class BluetoothChatService{
 	        				connectState[j] = false;
 	        			}
 	        		}
-	        		mConnThreads.remove(i);
+	        		mConnThreads.remove(it);
+	        		break;
 	        	}
 	        }
         }
@@ -269,6 +262,7 @@ public class BluetoothChatService{
         synchronized(mConnThreadsLock){
         	mConnThreads.add(connectedDevice);
         }
+        mConnectedThread = null;
 
 //        // Send the name of the connected device back to the UI Activity
 //        Message msg = mHandler.obtainMessage(AODV_Activity.MESSAGE_DEVICE_NAME);
@@ -279,11 +273,6 @@ public class BluetoothChatService{
 //        mHandler.sendMessage(msg);
 
         setState(STATE_CONNECTED);
-        
-        // 初回送信・Ipアドレスを通知
-    	StaticIpAddress sIp = new StaticIpAddress(context);
-    	mConnectedThread.write(sIp.getStaticIpByte());
-    	mConnectedThread = null;
     	
 //    	synchronized(mConnThreadsLock){
 //	    	for(int i=0;i<mConnThreads.size();i++){
@@ -330,7 +319,7 @@ public class BluetoothChatService{
     public synchronized void stop() {
         if (D) Log.d(TAG, "stop");
         if (mConnectThread != null) {mConnectThread.cancel(); mConnectThread = null;}
-        if (mConnectedThread != null) {mConnectedThread.cancel(); mConnectedThread = null;}
+//        if (mConnectedThread != null) {mConnectedThread.cancel(); mConnectedThread = null;}	/* 全スレッド止めないと意味ないような… */
         if (mAcceptThread != null) {mAcceptThread.cancel(); mAcceptThread = null;}
         if (mAutoConnectingThread != null) {mAutoConnectingThread.cancel(); mAutoConnectingThread = null;}
         
@@ -380,21 +369,23 @@ public class BluetoothChatService{
     public void write(byte[] out) {
     	// When writing, try to write out to all connected threads 
     	synchronized(mConnThreadsLock){
-	    	for (int i = 0; i < mConnThreads.size(); i++) {
+    		Iterator<ConnectedDeviceManager> it = mConnThreads.iterator();
+	    	while(it.hasNext()){
 	    		try {
+	    			ConnectedDeviceManager m = it.next();
 	                // Create temporary object
 	                ConnectedThread r;
 	                // Synchronize a copy of the ConnectedThread
-	                synchronized (this) {
-	                    //if (mState != STATE_CONNECTED) return;
-	                    r = mConnThreads.get(i).getConnectedThread();
-	                }
+                    //if (mState != STATE_CONNECTED) return;
+                    r = m.getConnectedThread();
 	                // Perform the write unsynchronized
-	                if(out.length > FRAGMENT_MTU)
-	                	fragment_write(r, out);
+	                if(out.length > FRAGMENT_MTU){
+	                	Thread f = new fragment_write(r, out);		/**** フラグメント処理が無駄に複数回実行されている...要修正 ****/
+	                	f.start();
+	                }
 	                else
 	                	r.write(out);
-	    		} catch (Exception e) {    			
+	    		} catch (Exception e) {  
 	    		}
 	    	}
     	}
@@ -402,21 +393,23 @@ public class BluetoothChatService{
     public void write(byte[] out,byte[] ipAddress) {
     	// When writing, try to write out to all connected threads 
     	synchronized(mConnThreadsLock){
-	    	for (int i = 0; i < mConnThreads.size(); i++) {
-	    		ConnectedDeviceManager m = mConnThreads.get(i);
+    		Iterator<ConnectedDeviceManager> it = mConnThreads.iterator();
+	    	while(it.hasNext()) {
+	    		ConnectedDeviceManager m = it.next();
 	    		if(m.getIpAddress() != null)
 		    		if(m.getIpAddress().equals(ipAddress)){
 			    		try {
 			                // Create temporary object
 			                ConnectedThread r;
 			                // Synchronize a copy of the ConnectedThread
-			                synchronized (this) {
-			                    //if (mState != STATE_CONNECTED) return;
-			                    r = m.getConnectedThread();
-			                }
+		                    //if (mState != STATE_CONNECTED) return;
+		                    r = m.getConnectedThread();
+			                
 			                // Perform the write unsynchronized
-			                if(out.length > FRAGMENT_MTU)
-			                	fragment_write(r, out);
+			                if(out.length > FRAGMENT_MTU){
+			                	Thread f = new fragment_write(r, out);
+			                	f.start();
+			                }
 			                else
 			                	r.write(out);
 			                break;
@@ -437,88 +430,99 @@ public class BluetoothChatService{
      * 
      * param:ipAddress == null -> broadcast
      */
-    private void fragment_write(ConnectedThread r, byte[] out){
-    	AODV_Activity.logD(out, "SendBeforeFragment.dat");
-    	
-    	int length = out.length + FRAGMENT_HASH_SIZE;
-    	fragmentId++;
-    	int dataId = fragmentId;
-    	byte sequenceNo = 0;
-    	MessageDigest digest = null;
-		try {
-			digest = java.security.MessageDigest.getInstance("MD5");
-		} catch (NoSuchAlgorithmException e) {
-			// TODO 自動生成された catch ブロック
-			e.printStackTrace();
-		}
-    	
-    	// MD5 calculate
-    	digest.update(out);
-    	byte[] hash = digest.digest();
-    	
-    	// byte[]型に変換
-    	byte[] byteLength = AODV_Activity.intToByte(length);
-    	byte[] byteDataId = AODV_Activity.intToByte(dataId);
-    	
-    	// 分割して送信
-    	int dataSize = FRAGMENT_MTU-FRAGMENT_HEADER_SIZE;
-    	for(int i=0;i<length;i+=dataSize){
-    		sequenceNo++;
-    		
-    		int thisSize = ((i+dataSize) > length)? length-i:dataSize; 
-    		ByteArrayOutputStream outputStream = new ByteArrayOutputStream(thisSize);
-    		
-    		// ヘッダーを追加
-    		outputStream.write(FRAGMENT_DATA);
-    		outputStream.write(sequenceNo);
-    		outputStream.write(byteDataId, 0, byteDataId.length);
-    		outputStream.write(byteLength, 0, byteLength.length);
-    		// データを追加
-    		/*
-    		 * 全体として起こりうるぶつ切りの場合分けは、
-				1.[データの途中まで] [データの残り+ハッシュ値]
-				2.[データすべて] [ハッシュ値]
-				3.[データの終わりまで+ハッシュ値の途中まで] [ハッシュ値の残り] 
-			 * の3通り。
-    		 */
-    		// 送信データがハッシュ部分も取り込む場合
-    		if(i+thisSize > length-FRAGMENT_HASH_SIZE){
-    			
-    			// 今回で送り終える場合
-    			if(i+thisSize == length){
-    				
-    				// ケースA.ハッシュ値のみでいい
-					// 2,3の最終パケットを担う。
-    				if(thisSize <= FRAGMENT_HASH_SIZE){
-    					outputStream.write(hash, FRAGMENT_HASH_SIZE-thisSize, thisSize);
-    				}
-    				
-    				// ケースB.データ+ハッシュ値
-					// 1の最終パケット。
-    				else{
-    					outputStream.write(out, i, thisSize-FRAGMENT_HASH_SIZE);
-    					outputStream.write(hash, 0, FRAGMENT_HASH_SIZE);
-    				}
-    			}
-    			
-    			// 今回で送り終えない場合
-				// ケースC.データ+ハッシュ値の途中まで
-				// 3の最終直前パケット。
-    			else{
-    				outputStream.write(out, i, length-FRAGMENT_HASH_SIZE-i);
-    				outputStream.write(hash, 0, thisSize-(length-FRAGMENT_HASH_SIZE-i));
-    			}
+    private class fragment_write extends Thread{
+    	ConnectedThread r;
+    	byte[] out;
+        public fragment_write(ConnectedThread r_, byte[] out_) {
+        	r = r_;
+        	out = out_;
+        }
+
+        public void run() {
+        	int length = out.length + FRAGMENT_HASH_SIZE;
+        	r.fragmentId++;
+        	int dataId = r.fragmentId;
+        	byte sequenceNo = 0;
+        	MessageDigest digest = null;
+    		try {
+    			digest = java.security.MessageDigest.getInstance("MD5");
+    		} catch (NoSuchAlgorithmException e) {
+    			// TODO 自動生成された catch ブロック
+    			e.printStackTrace();
     		}
-    		
-    		// 送信データがデータ部分だけで構成される場合
-    		else{
-    			outputStream.write(out, i, thisSize);
-    		}
-    		// 送信
-    		r.write(outputStream.toByteArray());
-    		AODV_Activity.logD(outputStream.toByteArray(), "SendAfterFragment.dat");
-    	}
-    	
+        	
+        	// MD5 calculate
+        	digest.update(out);
+        	byte[] hash = digest.digest();
+        	
+        	// byte[]型に変換
+        	byte[] byteLength = AODV_Activity.intToByte(length);
+        	byte[] byteDataId = AODV_Activity.intToByte(dataId);
+        	
+        	// 分割して送信
+        	int dataSize = FRAGMENT_MTU-FRAGMENT_HEADER_SIZE;
+        	for(int i=0;i<length;i+=dataSize){
+        		if(!r.isAlive())
+        			break;
+        		
+        		sequenceNo++;
+        		
+        		int thisSize = ((i+dataSize) > length)? length-i:dataSize; 
+        		ByteArrayOutputStream outputStream = new ByteArrayOutputStream(thisSize);
+        		
+        		// ヘッダーを追加
+        		outputStream.write(FRAGMENT_DATA);
+        		outputStream.write(sequenceNo);
+        		outputStream.write(byteDataId, 0, byteDataId.length);
+        		outputStream.write(byteLength, 0, byteLength.length);
+        		// データを追加
+        		/*
+        		 * 全体として起こりうるぶつ切りの場合分けは、
+    				1.[データの途中まで] [データの残り+ハッシュ値]
+    				2.[データすべて] [ハッシュ値]
+    				3.[データの終わりまで+ハッシュ値の途中まで] [ハッシュ値の残り] 
+    			 * の3通り。
+        		 */
+        		// 送信データがハッシュ部分も取り込む場合
+        		if(i+thisSize > length-FRAGMENT_HASH_SIZE){
+        			
+        			// 今回で送り終える場合
+        			if(i+thisSize == length){
+        				
+        				// ケースA.ハッシュ値のみでいい
+    					// 2,3の最終パケットを担う。
+        				if(thisSize <= FRAGMENT_HASH_SIZE){
+        					outputStream.write(hash, FRAGMENT_HASH_SIZE-thisSize, thisSize);
+        				}
+        				
+        				// ケースB.データ+ハッシュ値
+    					// 1の最終パケット。
+        				else{
+        					outputStream.write(out, i, thisSize-FRAGMENT_HASH_SIZE);
+        					outputStream.write(hash, 0, FRAGMENT_HASH_SIZE);
+        				}
+        			}
+        			
+        			// 今回で送り終えない場合
+    				// ケースC.データ+ハッシュ値の途中まで
+    				// 3の最終直前パケット。
+        			else{
+        				outputStream.write(out, i, length-FRAGMENT_HASH_SIZE-i);
+        				outputStream.write(hash, 0, thisSize-(length-FRAGMENT_HASH_SIZE-i));
+        			}
+        		}
+        		
+        		// 送信データがデータ部分だけで構成される場合
+        		else{
+        			outputStream.write(out, i, thisSize);
+        		}
+        		// 送信
+        		if(!r.isAlive())
+        			break;
+        		r.write(outputStream.toByteArray());
+//        		AODV_Activity.logD(outputStream.toByteArray(), "SendAfterFragment.dat");
+        	}
+        }
     }
 
     /**
@@ -597,9 +601,6 @@ public class BluetoothChatService{
 	            		serverSocket = mAdapter.listenUsingRfcommWithServiceRecord(NAME, mUuids.get(i));
 	                    socket = serverSocket.accept();
 	                    if (socket != null) {
-	                    	String address = socket.getRemoteDevice().getAddress();
-		                    mSockets.add(socket);
-		                    mDeviceAddresses.add(address);
 		                    connected(socket, socket.getRemoteDevice(), mUuids.get(i));
 		                    connectState[i] = true;
 	                    }	                    
@@ -708,6 +709,7 @@ public class BluetoothChatService{
         private final BluetoothSocket mmSocket;
         private final InputStream mmInStream;
         private final OutputStream mmOutStream;
+        private Thread ipRequestThread;
         private boolean ipAddressFlag;
         
         // Fragment
@@ -715,6 +717,9 @@ public class BluetoothChatService{
         byte sequenceNo = -1;
         byte[] dataLength = null;
         byte[] dataNo = null;
+        
+        // fragment data id
+        private int fragmentId;
 
         public ConnectedThread(BluetoothSocket socket) {
             Log.d(TAG, "create ConnectedThread");
@@ -733,13 +738,14 @@ public class BluetoothChatService{
 
             mmInStream = tmpIn;
             mmOutStream = tmpOut;
+            
+            fragmentId = 0;
         }
 
         public void run() {
 //    		mHandler.post(new Runnable() {
 //    			@Override
 //    			public void run() {
-//    				// TODO 自動生成されたメソッド・スタブ
 //    				EditText text_view_received = AODV_Activity.testtext;
 //    				text_view_received.append("ConnectedThreadRun()\n");
 //    				text_view_received.setSelection(text_view_received.getText().length());
@@ -752,38 +758,51 @@ public class BluetoothChatService{
             
             byte[] preHopAddress = null;	// 前ホップノードのアドレス(当メッセージの送信元)
             
+            // IPアドレスを要求するスレッドを生成
+            ipRequestThread = new Thread(new Runnable() {
+				@Override
+				public void run() {
+					while(true){
+						if(ipAddressFlag)break;
+						
+                		byte[] request = new byte[1];
+                		request[0] = STATIC_IP_REQUEST;
+                		write(request);
+                		
+                		try {
+							Thread.sleep(500);
+						} catch (InterruptedException e) {
+							break;
+						}
+					}
+				}
+			});
+            ipRequestThread.start();
+            
             // Keep listening to the InputStream while connected
             while (true) {
                 try {
                     // Read from the InputStream
                 	if(mmInStream.available() > 0){
 	                    bytes = mmInStream.read(buffer);
-	                    final int b_size = bytes;
 	                    Log.d(TAG,"バイト数:"+bytes);
-//	            		mHandler.post(new Runnable() {
-//	            			@Override
-//	            			public void run() {
-//	            				// TODO 自動生成されたメソッド・スタブ
-//	            				EditText text_view_received = AODV_Activity.testtext;
-//	            				text_view_received.append("Received:"+b_size+"\n");
-//	            				text_view_received.setSelection(text_view_received.getText().length());
-//	            			}
-//	            		});
 	                    // BT受信処理
 	                    // 1バイトならIpAddressを送る
-	                    if(bytes == 1){
+	                    if(bytes == 1 && buffer[0] == STATIC_IP_REQUEST){
 	                        // Ipアドレスを通知
 	                    	StaticIpAddress sIp = new StaticIpAddress(context);
 	                    	this.write(sIp.getStaticIpByte());
 	                    }
 	                    else{
+	                    	mAODV_Service.appendMessageOnActivity(" "+buffer[0]);
 		                    // 4バイトかつ，IpAddressがnullなら、IpAddressとみる
 		                    if(!ipAddressFlag){
 		                    	if(bytes == 4){
 		                    		// アドレスの保管
-		                    		synchronized (BluetoothChatService.this) {
-		                        		for(int i=0;i<mConnThreads.size();i++){
-		                        			ConnectedDeviceManager manager = mConnThreads.get(i);
+		                    		synchronized (mConnThreadsLock) {
+		                    			Iterator<ConnectedDeviceManager> it = mConnThreads.iterator();
+		                        		while(it.hasNext()){
+		                        			ConnectedDeviceManager manager = it.next();
 		                        			if(manager.getMacAddress().equals(mmSocket.getRemoteDevice().getAddress())){
 		                        				preHopAddress = new byte[4];
 		                        				System.arraycopy(buffer, 0, preHopAddress, 0, 4);
@@ -797,9 +816,9 @@ public class BluetoothChatService{
 		                    	}
 		                    	else{
 		                    		// まだIpAddressが届いてないので催促する制御メッセージの送信
-		                    		byte[] request = new byte[1];
-		                    		request[0] = -1;
-		                    		this.write(request);
+//		                    		byte[] request = new byte[1];
+//		                    		request[0] = -1;
+//		                    		this.write(request);
 		                    	}
 		                    }
 		                    else{
@@ -812,28 +831,20 @@ public class BluetoothChatService{
 	                    				byte[] bufferMtuSize = new byte[FRAGMENT_MTU];
 		                    			System.arraycopy(cutBuffer, size, bufferMtuSize, 0, (size+FRAGMENT_MTU > bytes)? bytes-size:FRAGMENT_MTU);
 		                    			
-		                    			// 先頭バイトが101ならフラグメント化されているパケット
-		                    			if(bufferMtuSize[0] == 101){
-		                    				final byte no = bufferMtuSize[1];
-//		            	            		mHandler.post(new Runnable() {
-//		            	            			@Override
-//		            	            			public void run() {
-//		            	            				// TODO 自動生成されたメソッド・スタブ
-//		            	            				EditText text_view_received = AODV_Activity.testtext;
-//		            	            				text_view_received.append(" FramentSequence:"+no+"\n");
-//		            	            				text_view_received.setSelection(text_view_received.getText().length());
-//		            	            			}
-//		            	            		});
+		                    			// 先頭バイトがFRAGMENT_DATAならフラグメント化されているパケット
+		                    			if(bufferMtuSize[0] == FRAGMENT_DATA){
 		                    				receiveData(bufferMtuSize, preHopAddress);
 		                    			}
 		                    			else{
-		                    				ReceiveProcess.process(bufferMtuSize, preHopAddress, true, my_address, context, mAODV_Service);
+//		                    				synchronized(mAODV_Service.getReceivedProcessLock()){
+		                    					ReceiveProcess.process(bufferMtuSize, preHopAddress, false, my_address, context, mAODV_Service);
+//		                    				}
 		                    			}
 	                    			}
 	                    		}
 	                    		else{
-	                    			// 先頭バイトが101ならフラグメント化されているパケット
-	                    			if(cutBuffer[0] == 101){
+	                    			// 先頭バイトがFRAGMENT_DATAならフラグメント化されているパケット
+	                    			if(cutBuffer[0] == FRAGMENT_DATA){
 //	                    				AODV_Activity.logD(cutBuffer);
 //	                    				final byte no = cutBuffer[1];
 //	                    				byte[] a = {cutBuffer[6],cutBuffer[7],cutBuffer[8],cutBuffer[9]};
@@ -850,7 +861,9 @@ public class BluetoothChatService{
 	                    				receiveData(cutBuffer, preHopAddress);
 	                    			}
 	                    			else{
-	                    				ReceiveProcess.process(cutBuffer, preHopAddress, true, my_address, context, mAODV_Service);
+//	                    				synchronized(mAODV_Service.getReceivedProcessLock()){
+	                    					ReceiveProcess.process(cutBuffer, preHopAddress, true, my_address, context, mAODV_Service);
+//	                    				}
 	                    			}
 	                    		}
 		                    }
@@ -873,9 +886,10 @@ public class BluetoothChatService{
 //            		});
                     //e.printStackTrace();
                     // ArrayListから自分の削除
-            		synchronized (BluetoothChatService.this) {
-                		for(int i=0;i<mConnThreads.size();i++){
-                			ConnectedDeviceManager m = mConnThreads.get(i);
+            		synchronized (mConnThreadsLock) {
+            			Iterator<ConnectedDeviceManager> it = mConnThreads.iterator();
+                		while(it.hasNext()){
+                			ConnectedDeviceManager m = it.next();
                 			if(m.getConnectedThread().getId() == this.getId()){
                 				for(int j=0;j<7;j++){
                 					if(m.getUuid().compareTo(mUuids.get(j)) == 0){
@@ -883,7 +897,7 @@ public class BluetoothChatService{
                 						break;
                 					}
                 				}
-                				mConnThreads.remove(i);
+                				mConnThreads.remove(it);
                 				setState(STATE_LISTEN);
 //                				AODV_Activity.logD("ここ通ってるよ！\n");
                 				break;
@@ -897,6 +911,11 @@ public class BluetoothChatService{
 					e.printStackTrace();
 				}
             }
+            if(ipRequestThread != null)
+				if(ipRequestThread.isAlive()){
+					ipRequestThread.interrupt();
+					ipRequestThread = null;
+				}
         }
         
         // フラグメント化されたデータの受け取り口
@@ -908,10 +927,10 @@ public class BluetoothChatService{
     		System.arraycopy(cutBuffer, 2, thisDataId, 0, 4);
     		System.arraycopy(cutBuffer, 6, thisDataLength, 0, 4);
     		
-    		AODV_Activity.logD(cutBuffer, "ReceiveBeforeCombine"+thisSequenceNo+".dat");
+//    		AODV_Activity.logD(cutBuffer, "ReceiveBeforeCombine"+thisSequenceNo+".dat");
     		
-    		final byte a = cutBuffer[1];
-    		
+//    		final byte a = cutBuffer[1];
+//    		
 //    		mHandler.post(new Runnable() {
 //    			@Override
 //    			public void run() {
@@ -921,23 +940,25 @@ public class BluetoothChatService{
 //    				text_view_received.setSelection(text_view_received.getText().length());
 //    			}
 //    		});
-    		if(thisSequenceNo == 2){
-    			if(outputStream == null){
-    				AODV_Activity.logD("out".getBytes(), "outNull.dat");
-    			}
-    			if(!Arrays.equals(dataLength,thisDataLength)){
-    				AODV_Activity.logD("out".getBytes(), "NotEqualLength.dat");
-    			}
-    			if(!Arrays.equals(dataNo,thisDataId)){
-    				AODV_Activity.logD("out".getBytes(), "NotEqualId.dat");
-    			}
-    		}
     		
+//    		if(thisSequenceNo == 2){
+//    			if(outputStream == null){
+//    				AODV_Activity.logD("out".getBytes(), "outNull.dat");
+//    			}
+//    			if(!Arrays.equals(dataLength,thisDataLength)){
+//    				AODV_Activity.logD("out".getBytes(), "NotEqualLength.dat");
+//    			}
+//    			if(!Arrays.equals(dataNo,thisDataId)){
+//    				AODV_Activity.logD("out".getBytes(), "NotEqualId.dat");
+//    			}
+//    		}
+    		 		
     		// それまでの続きか、あるいは新しいフラグメントデータか識別
     		// if 受け取り先バッファが未準備なら，新しいデータ
     		// || IDなりサイズなりが異なっていれば新しいデータ
     		if(outputStream == null || !Arrays.equals(dataLength,thisDataLength) || !Arrays.equals(dataNo,thisDataId)){
-    			AODV_Activity.logD(cutBuffer, "NewReceiveBeforeCombine"+thisSequenceNo+".dat");
+    			
+//    			AODV_Activity.logD(cutBuffer, "NewReceiveBeforeCombine"+thisSequenceNo+".dat");
     			// 新しいデータなのに先頭データじゃないなら無視
     			// *重要* 順序の入れ違いに対応させてないため。
     			if(thisSequenceNo != 1){;}
@@ -958,7 +979,7 @@ public class BluetoothChatService{
     		else if((sequenceNo+1) != thisSequenceNo){}
     		// 続きのデータ
     		else{
-    			AODV_Activity.logD("ou".getBytes(), "continue.dat");
+//    			AODV_Activity.logD("ou".getBytes(), "continue.dat");
     			sequenceNo = thisSequenceNo;
     			outputStream.write(cutBuffer, FRAGMENT_HEADER_SIZE, cutBuffer.length-FRAGMENT_HEADER_SIZE);
     			
@@ -980,14 +1001,15 @@ public class BluetoothChatService{
 //						// TODO 自動生成された catch ブロック
 //						e.printStackTrace();
 //					}
-    				AODV_Activity.logD("ou".getBytes(), "finish.dat");
+    				
+//    				AODV_Activity.logD("ou".getBytes(), "finish.dat");
     				// 最終データなので、ハッシュ値を計算してみる。
     				byte[] result = outputStream.toByteArray();
     				byte[] data = new byte[result.length-FRAGMENT_HASH_SIZE];
     				byte[] hash = new byte[FRAGMENT_HASH_SIZE];
     				System.arraycopy(result, 0, data, 0, result.length-FRAGMENT_HASH_SIZE);
     				System.arraycopy(result, result.length-FRAGMENT_HASH_SIZE, hash, 0, FRAGMENT_HASH_SIZE);
-    				AODV_Activity.logD(data, "Last.dat");
+//    				AODV_Activity.logD(data, "Last.dat");
     				
 	    	    	MessageDigest digest2 = java.security.MessageDigest.getInstance("MD5");
 	    	    	digest2.update(data);
@@ -1101,7 +1123,6 @@ public class BluetoothChatService{
     	private final int X = 5000;
     	private Timer timer;
     	private TimerTask timerTask;
-    	private boolean scaning_flag;
     	private BluetoothAdapter mAdapter;
     	
         public AutoConnectingThread() {
@@ -1125,26 +1146,23 @@ public class BluetoothChatService{
 //		            }
 					// スキャンを行い、発見したものから既知デバイスのみと接続
 					
-					if(scaning_flag == false){
-						scaning_flag = true;
-						
+					if(!mAdapter.isDiscovering()){
 						mAdapter.startDiscovery();
-						
 					}
 					
 					// 接続済みリストから，IPアドレスが無いものを探しIPアドレスの再要求
-					synchronized(mConnThreadsLock){
-						for(int i=0;i<mConnThreads.size();i++){
-							ConnectedDeviceManager m = mConnThreads.get(i);
-							if(m.getIpAddress() == null){
-	                    		byte[] requestMessage = new byte[1];
-	                    		requestMessage[0] = -1;
-								m.getConnectedThread().write(requestMessage);
-//								m.getConnectedThread().cancel();
-//								mConnThreads.remove(i);
-							}
-						}
-					}
+//					synchronized(mConnThreadsLock){
+//						for(int i=0;i<mConnThreads.size();i++){
+//							ConnectedDeviceManager m = mConnThreads.get(i);
+//							if(m.getIpAddress() == null){
+//	                    		byte[] requestMessage = new byte[1];
+//	                    		requestMessage[0] = STATIC_IP_REQUEST;
+//								m.getConnectedThread().write(requestMessage);
+////								m.getConnectedThread().cancel();
+////								mConnThreads.remove(i);
+//							}
+//						}
+//					}
 				}
 			};
         }
@@ -1152,7 +1170,6 @@ public class BluetoothChatService{
         public void run() {
             if (D) Log.d(TAG, "BEGIN mAutoConnectingThread" + this);
             
-            scaning_flag = false;
             mAdapter = BluetoothAdapter.getDefaultAdapter();
             
             // Register for broadcasts when a device is discovered
@@ -1217,7 +1234,6 @@ public class BluetoothChatService{
                     }
                 // When discovery is finished, change the Activity title
                 } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
-                    scaning_flag = false;
                 } else if (BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(action)){
             		BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
             		String mac = device.getAddress();
@@ -1257,8 +1273,9 @@ public class BluetoothChatService{
 	    	
 	    	if(mConnThreads.size() != 0){
 	    		StringBuilder str = new StringBuilder();
-	    		for(int i=0;i<mConnThreads.size();i++){
-	    			ConnectedDeviceManager m = mConnThreads.get(i);
+	    		Iterator<ConnectedDeviceManager> it = mConnThreads.iterator();
+	    		while(it.hasNext()){
+	    			ConnectedDeviceManager m = it.next();
 	    			if(m.getConnectedThread() != null){
 		    			if(m.getConnectedThread().isAlive()){
 		    				if(m.getIpAddress() != null)
@@ -1269,6 +1286,7 @@ public class BluetoothChatService{
 		    			}
 	    			}
 	    		}
+	    		
 	    		return str.toString();
 	    	}
 	    	else

@@ -66,7 +66,9 @@ public class UdpListener implements Runnable {
 				// 受信したデータを抽出	received_dataをreceiveBufferに変更したよ
 				byte[] receiveBuffer = cut_byte_spare(packet.getData() ,packet.getLength());
 				
-				ReceiveProcess.process(receiveBuffer, packet.getAddress().getAddress(), false, my_address, context, mAODV_Service);
+				synchronized(mAODV_Service.getReceivedProcessLock()){
+					ReceiveProcess.process(receiveBuffer, packet.getAddress().getAddress(), false, my_address, context, mAODV_Service);
+				}
 				
 			} catch (IOException e) {
 

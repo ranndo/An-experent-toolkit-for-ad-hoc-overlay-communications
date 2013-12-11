@@ -66,9 +66,27 @@ java.lang.String _arg7;
 _arg7 = data.readString();
 java.util.List<java.lang.String> _arg8;
 _arg8 = data.createStringArrayList();
-byte[] _arg9;
-_arg9 = data.createByteArray();
+java.util.Map _arg9;
+java.lang.ClassLoader cl = (java.lang.ClassLoader)this.getClass().getClassLoader();
+_arg9 = data.readHashMap(cl);
 this.SendMessage(_arg0, _arg1, _arg2, _arg3, _arg4, _arg5, _arg6, _arg7, _arg8, _arg9);
+reply.writeNoException();
+return true;
+}
+case TRANSACTION_WriteLog:
+{
+data.enforceInterface(DESCRIPTOR);
+int _arg0;
+_arg0 = data.readInt();
+java.lang.String _arg1;
+_arg1 = data.readString();
+java.lang.String _arg2;
+_arg2 = data.readString();
+int _arg3;
+_arg3 = data.readInt();
+java.lang.String _arg4;
+_arg4 = data.readString();
+this.WriteLog(_arg0, _arg1, _arg2, _arg3, _arg4);
 reply.writeNoException();
 return true;
 }
@@ -90,7 +108,9 @@ public java.lang.String getInterfaceDescriptor()
 {
 return DESCRIPTOR;
 }
-@Override public void SendMessage(java.lang.String destination_address, java.lang.String source_address, byte flag, java.lang.String package_name, java.lang.String intent_action, int intent_flags, java.lang.String intent_type, java.lang.String intent_scheme, java.util.List<java.lang.String> intent_categories, byte[] data) throws android.os.RemoteException
+// 引数dataMapはMap<String,byte[]>を引数としているが，AIDLがそれを認めない仕様のため型指定していない
+
+@Override public void SendMessage(java.lang.String destination_address, java.lang.String source_address, byte flag, java.lang.String package_name, java.lang.String intent_action, int intent_flags, java.lang.String intent_type, java.lang.String intent_scheme, java.util.List<java.lang.String> intent_categories, java.util.Map dataMap) throws android.os.RemoteException
 {
 android.os.Parcel _data = android.os.Parcel.obtain();
 android.os.Parcel _reply = android.os.Parcel.obtain();
@@ -105,8 +125,27 @@ _data.writeInt(intent_flags);
 _data.writeString(intent_type);
 _data.writeString(intent_scheme);
 _data.writeStringList(intent_categories);
-_data.writeByteArray(data);
+_data.writeMap(dataMap);
 mRemote.transact(Stub.TRANSACTION_SendMessage, _data, _reply, 0);
+_reply.readException();
+}
+finally {
+_reply.recycle();
+_data.recycle();
+}
+}
+@Override public void WriteLog(int state, java.lang.String sourceAddress, java.lang.String destinationAddress, int dataLength, java.lang.String packageName) throws android.os.RemoteException
+{
+android.os.Parcel _data = android.os.Parcel.obtain();
+android.os.Parcel _reply = android.os.Parcel.obtain();
+try {
+_data.writeInterfaceToken(DESCRIPTOR);
+_data.writeInt(state);
+_data.writeString(sourceAddress);
+_data.writeString(destinationAddress);
+_data.writeInt(dataLength);
+_data.writeString(packageName);
+mRemote.transact(Stub.TRANSACTION_WriteLog, _data, _reply, 0);
 _reply.readException();
 }
 finally {
@@ -116,6 +155,10 @@ _data.recycle();
 }
 }
 static final int TRANSACTION_SendMessage = (android.os.IBinder.FIRST_CALL_TRANSACTION + 0);
+static final int TRANSACTION_WriteLog = (android.os.IBinder.FIRST_CALL_TRANSACTION + 1);
 }
-public void SendMessage(java.lang.String destination_address, java.lang.String source_address, byte flag, java.lang.String package_name, java.lang.String intent_action, int intent_flags, java.lang.String intent_type, java.lang.String intent_scheme, java.util.List<java.lang.String> intent_categories, byte[] data) throws android.os.RemoteException;
+// 引数dataMapはMap<String,byte[]>を引数としているが，AIDLがそれを認めない仕様のため型指定していない
+
+public void SendMessage(java.lang.String destination_address, java.lang.String source_address, byte flag, java.lang.String package_name, java.lang.String intent_action, int intent_flags, java.lang.String intent_type, java.lang.String intent_scheme, java.util.List<java.lang.String> intent_categories, java.util.Map dataMap) throws android.os.RemoteException;
+public void WriteLog(int state, java.lang.String sourceAddress, java.lang.String destinationAddress, int dataLength, java.lang.String packageName) throws android.os.RemoteException;
 }

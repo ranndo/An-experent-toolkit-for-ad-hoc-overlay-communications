@@ -15,8 +15,6 @@ import java.util.TimerTask;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import com.example.intenttester_r.ServiceInterface;
-
 import jp.ac.ehime_u.cite.udptest.SendManager;
 import jp.ac.ehime_u.cite.udptest.StaticIpAddress;
 import android.app.Activity;
@@ -51,7 +49,6 @@ public class CameraActivity extends Activity {
 	protected static String my_address;
 	protected static int compress_ratio;
 	static SendManager sendManager = null;
-	ServiceInterface sr = null;
 	protected static int frame_rate_count;
 	
 	Timer observer_timer;

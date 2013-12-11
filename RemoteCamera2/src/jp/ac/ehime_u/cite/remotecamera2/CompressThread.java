@@ -61,6 +61,9 @@ public class CompressThread extends Thread {
 					+ ".ImageViewerActivity";
 			String s_null = null;
 			List<String> s_list = null;
+			
+			
+			
 			try {
 				// Service‚ğ’Ê‚µ‚Ä‘—M
 				if (CameraActivity.sendManager != null) {

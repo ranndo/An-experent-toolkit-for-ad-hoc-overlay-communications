@@ -179,6 +179,9 @@ public class RINT {
 	protected byte getFlag(){
 		return flag;
 	}
+	protected boolean getFlagRTT(){
+		return (flag & FLAG_RTT) != 0 ;
+	}
 	public String getPackageName(){
 		return package_name;
 	}

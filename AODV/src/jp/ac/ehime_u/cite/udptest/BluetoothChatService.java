@@ -1120,7 +1120,7 @@ public class BluetoothChatService{
      */
     private class AutoConnectingThread extends Thread {
         
-    	private final int X = 5000;
+    	private final int X = 60000;
     	private Timer timer;
     	private TimerTask timerTask;
     	private BluetoothAdapter mAdapter;

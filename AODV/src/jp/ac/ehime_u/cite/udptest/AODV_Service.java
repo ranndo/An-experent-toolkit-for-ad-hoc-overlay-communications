@@ -18,9 +18,13 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
 
@@ -169,8 +173,9 @@ public class AODV_Service extends Service
 				String source_address, byte flag, String package_name,
 				String intent_action, int intent_flags, String intent_type,
 				String intent_scheme, List<String> intent_categories,
-				byte[] data) throws RemoteException {
-
+				Map dataMap) throws RemoteException {
+			
+			// **** OutputStreamを使えばかなりコード短縮可能 **** //
 			// 送信すべきバッファの全体サイズを計測していく
 			int total_length = 1+4+4+1;	//Type,宛先,送信元,フラグの各サイズを加算
 			if(package_name != null){
@@ -199,12 +204,21 @@ public class AODV_Service extends Service
 					total_length += intent_categories.get(i).length();
 				}
 			}
-			if(data != null){
-				total_length += data.length;
+			if(dataMap != null){
+				HashMap<String, byte[]> hashDataMap = (HashMap<String, byte[]>) dataMap;
+				Set<Map.Entry<String, byte[]>> entrySet = hashDataMap.entrySet();
+				Iterator<Map.Entry<String, byte[]>> it = entrySet.iterator();
+			
+				total_length ++;
+				while(it.hasNext()){
+					Map.Entry<String, byte[]> entry = it.next();
+					total_length += 4 + entry.getKey().getBytes().length + 4 + entry.getValue().length;
+				}
 			}
+			
 			// 送信バッファの確保
 			byte[] buffer = new byte[total_length];
-Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
+
 			// バッファに各情報を割り当て
 			buffer[0] =  5;	// Type=5とする
 			System.arraycopy(getByteAddress(destination_address), 0, buffer, 1, 4);
@@ -251,14 +265,37 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 					index +=  intent_categories.get(i).length();
 				}
 			}
-			System.arraycopy(data, 0, buffer, index, data.length);
+			if(dataMap != null){
+				HashMap<String, byte[]> hashDataMap = (HashMap<String, byte[]>) dataMap;
+				Set<Map.Entry<String, byte[]>> entrySet = hashDataMap.entrySet();
+				Iterator<Map.Entry<String, byte[]>> it = entrySet.iterator();
+			
+				buffer[index] = (byte) entrySet.size();
+				index++;
+				
+				while(it.hasNext()){
+					Map.Entry<String, byte[]> entry = it.next();
+					byte[] keyName = entry.getKey().getBytes();
+					byte[] thisData= entry.getValue();
+					byte[] keyNameLength = intToByte(keyName.length);
+					byte[] thisDataLength= intToByte(thisData.length);
+					
+					System.arraycopy(keyNameLength, 0, buffer, index, keyNameLength.length);
+					index += keyNameLength.length;
+					System.arraycopy(keyName, 0, buffer, index, keyName.length);
+					index += keyName.length;
+					System.arraycopy(thisDataLength, 0, buffer, index, thisDataLength.length);
+					index += thisDataLength.length;
+					System.arraycopy(thisData, 0, buffer, index, thisData.length);
+					index += thisData.length;
+				}
+			}
 			// 送信データ生成ここまで
 
 			// 送信先への経路が存在するかチェック
 			final int route_index = searchToAdd(getByteAddress(destination_address));
 			// 経路が存在する場合、有効かどうかチェック
 			boolean enableRoute = false; // 初期化
-			Log.d("ServiceSearch","z");
 			if (route_index != -1) {
 				if ( getRoute(route_index).stateFlag == 1 &&
 						(getRoute(route_index).lifeTime > new Date().getTime())) {
@@ -438,15 +475,21 @@ Log.d("RINT_Create","total/data = "+total_length+"/"+data.length);
 
 				}
 			}//*/
+		}
+
+		@Override
+		public void WriteLog(int state, String sourceAddress,
+				String destinationAddress, int dataLength, String packageName)
+				throws RemoteException {
+			// TODO 自動生成されたメソッド・スタブ
 			Date date_rint = new Date();
 			SimpleDateFormat sdf_rint = new SimpleDateFormat("yyyy/MM/dd kk:mm:ss SSS", Locale.JAPANESE);
-			if((RINT.FLAG_PACKAGE_NAME & flag) != 0)
-				LogDataBaseOpenHelper.insertLogTableDATA(log_db, 51, MyIP, source_address,
-						destination_address, data.length, package_name, sdf_rint.format(date_rint), network_interface);
-			else
-				LogDataBaseOpenHelper.insertLogTableDATA(log_db, 51, MyIP, source_address,
-						destination_address, data.length, package_name, sdf_rint.format(date_rint), network_interface);
+			51
+			LogDataBaseOpenHelper.insertLogTableDATA(log_db, state, MyIP, sourceAddress,
+				destinationAddress, dataLength, packageName, sdf_rint.format(date_rint), network_interface);
+
 		}
+
 	};
 
 	// 自身を返すBinder

@@ -224,7 +224,7 @@ public class RREP {
 		if(length == 14)
 			return false;
 
-		if( (RREPMes[1]&(2<<6)) ==1)
+		if( (RREPMes[1]&(2<<6)) !=0)
 			return true;
 		else return false;
 	}
@@ -234,7 +234,7 @@ public class RREP {
 		if(length == 14)
 			return false;
 
-		if( (RREPMes[1]&(2<<5)) ==1)
+		if( (RREPMes[1]&(2<<5)) !=0)
 			return true;
 		else return false;
 	}

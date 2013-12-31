@@ -99,46 +99,50 @@ public class RouteManager implements Runnable {
 					}
 				}
 				
-				// 既存経路の生存時間チェック
-				for(int i=0;i<mAODV_Service.getRouteSize();i++){
-					
-					route = mAODV_Service.getRoute(i);
-					long now = new Date().getTime();
-					
-					// 有効でない経路が削除される時間であるか
-					if( (route.stateFlag != 1) && (route.lifeTime < now)){
+				Object lock = mAODV_Service.getRouteLocker();
+				synchronized (lock) {
+					// 既存経路の生存時間チェック
+					for(int i=0;i<mAODV_Service.getRouteSize();i++){
 						
-						// 無効経路の削除
-						mAODV_Service.removeRoute(i);
+						route = mAODV_Service.getRoute(i);
+						long now = new Date().getTime();
 						
-						// 削除によるiのズレを修正
-						i--;
-					}
-					
-					// 有効経路が無効経路になる時間（寿命）であるか
-					else if( (route.stateFlag == 1) && (route.lifeTime < now)){
-						
-						// 無効化
-						route.stateFlag = 2;
-						route.lifeTime  = (now+AODV_Service.DELETE_PERIOD);
-						route.toSeqNum++;
-						
-						// 上書き
-						mAODV_Service.setRoute(i, route);
-						
-						// ローカルリペアを行えるホップ数か？
-						if(route.hopCount <= AODV_Service.MAX_REPAIR_TTL){
-							mAODV_Service.localRepair(route,myAddress,mAODV_Service);
-						}
-						else{
-							// RERRの送信
-							new RERR().RERR_Sender(route,mAODV_Service);
+						// 有効でない経路が削除される時間であるか
+						if( (route.stateFlag != 1) && (route.lifeTime < now)){
 							
-							final byte[] destination_address = route.toIpAdd;
-							mAODV_Service.appendMessageOnActivity(AODV_Service.getStringByByteAddress(destination_address)+" disconnected\n");
+							// 無効経路の削除
+							mAODV_Service.removeRoute(i);
+							
+							// 削除によるiのズレを修正
+							i--;
+						}
+						
+						// 有効経路が無効経路になる時間（寿命）であるか
+						else if( (route.stateFlag == 1) && (route.lifeTime < now)){
+							
+							// 無効化
+							route.stateFlag = 2;
+							route.lifeTime  = (now+AODV_Service.DELETE_PERIOD);
+							route.toSeqNum++;
+							
+							// 上書き
+							mAODV_Service.setRoute(i, route);
+							
+							// ローカルリペアを行えるホップ数か？
+							if(route.hopCount <= AODV_Service.MAX_REPAIR_TTL){
+								mAODV_Service.localRepair(route,myAddress,mAODV_Service);
+							}
+							else{
+								// RERRの送信
+								new RERR().RERR_Sender(route,mAODV_Service);
+								
+								final byte[] destination_address = route.toIpAdd;
+								mAODV_Service.appendMessageOnActivity(AODV_Service.getStringByByteAddress(destination_address)+" disconnected\n");
+							}
 						}
 					}
 				}
+
 			}
 			
 			mAODV_Service.setDoBroadcast(false);

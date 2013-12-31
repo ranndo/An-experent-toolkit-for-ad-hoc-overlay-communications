@@ -11,6 +11,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketException;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 
 import android.util.Log;
@@ -29,7 +30,8 @@ public class RINT {
 	String intent_type;
 	String intent_scheme;
 	List<String> intent_categories;
-	byte[] data;				// [??-??]	データ
+	//byte[] data;				// [??-??]	データ
+	HashMap<String,byte[]> dataMap;
 
 	// 定数
 	public static final byte FLAG_PACKAGE_NAME	= 0x01;
@@ -43,7 +45,7 @@ public class RINT {
 
 	// 受信バッファのデコード
 	public RINT(){}
-	public RINT(byte[] receive_data){
+	public RINT(byte[] receive_data)throws Exception{
 		type = 5;
 
 		destination_address = new byte[4];	// 宛先アドレスの抜き出し
@@ -161,10 +163,37 @@ public class RINT {
 
 		// dataが付加されているなら
 		if(receive_data.length > index){
-			data = new byte[receive_data.length - index];
-			System.arraycopy(receive_data, index, data, 0, data.length);
+			dataMap = new HashMap<String,byte[]>();
+//			data = new byte[receive_data.length - index];
+//			System.arraycopy(receive_data, index, data, 0, data.length);
+			int next_length_int;
+			byte[] b_string2;
+			byte number_of_dates = receive_data[index];
+			index++;
+			
+			for(int i=0;i<number_of_dates;i++){
+				// HashMapにputするキー<String>側の取得
+				next_length_int = byteToInt(receive_data, index, 4); // 4:sizeof(Integer)
+				index += 4;
+				
+				b_string = new byte[next_length_int];	// 一旦，byte型になっている文字列を読み込み
+				System.arraycopy(receive_data, index, b_string, 0, next_length_int);
+				index += next_length_int;
+				
+				// HashMapにputするValue<byte[]>側の取得
+				next_length_int = byteToInt(receive_data, index, 4); // 4:sizeof(Integer)
+				index += 4;
+				
+				b_string2 = new byte[next_length_int];	// 一旦，byte型になっている文字列を読み込み
+				System.arraycopy(receive_data, index, b_string2, 0, next_length_int);
+				index += next_length_int;
+				
+				Log.d("Map",number_of_dates+":"+ new String(b_string)+":"+b_string2.length);
+				// キーと値の組をセット
+				dataMap.put(new String(b_string), b_string2);
+			}
 		}else{
-			data = null;
+			dataMap = null;
 		}
 
 	}
@@ -200,8 +229,8 @@ public class RINT {
 	protected List<String> getIntentCategories(){
 		return intent_categories;
 	}
-	protected byte[] getData(){
-		return data;
+	protected HashMap<String,byte[]> getData(){
+		return dataMap;
 	}
 
 
@@ -231,6 +260,23 @@ public class RINT {
 		int value = 0;
 		// バイト配列の入力を行うストリーム
 		ByteArrayInputStream bin = new ByteArrayInputStream(num);
+
+		// DataInputStreamと連結
+		DataInputStream in = new DataInputStream(bin);
+
+		try{	// intを読み込み
+			value = in.readInt();
+		}catch(IOException e){
+			System.out.println(e);
+		}
+		return value;
+	}
+	// byte[]型をint型へ変換
+	public int byteToInt(byte[] num,int offset,int length){
+
+		int value = 0;
+		// バイト配列の入力を行うストリーム
+		ByteArrayInputStream bin = new ByteArrayInputStream(num,offset,length);
 
 		// DataInputStreamと連結
 		DataInputStream in = new DataInputStream(bin);

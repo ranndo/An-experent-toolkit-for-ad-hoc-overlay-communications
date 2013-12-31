@@ -1,5 +1,6 @@
 package jp.ac.ehime_u.cite.udptest;
 
+import java.io.BufferedWriter;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -8,6 +9,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
@@ -35,6 +37,10 @@ import android.bluetooth.BluetoothAdapter;
 import android.content.Context;
 import android.content.Intent;
 import android.database.sqlite.SQLiteDatabase;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.net.wifi.WifiManager;
 import android.os.Binder;
 import android.os.Handler;
@@ -49,7 +55,7 @@ import android.widget.Toast;
  * @author id:language_and_engineering
  *
  */
-public class AODV_Service extends Service
+public class AODV_Service extends Service implements SensorEventListener
 {
 	// スレッド
 	private Thread udpListenerThread;	// 受信スレッド
@@ -91,6 +97,14 @@ public class AODV_Service extends Service
     private BluetoothAdapter mBluetoothAdapter = null;
     // Member object for the chat services
     private BluetoothChatService mChatService = null;
+    // 加速度センサ
+    private SensorManager sensorManager = null;
+    // なす角計算に使ってる変数群
+    private float oldx = 0;
+    private float oldy = 0;
+    private float oldz = 0;
+    private double p,P = 1.0;
+    public static final double SUB_RATE = 100000.0;
     
     // Message types sent from the BluetoothChatService Handler
     // DEVICE_**** is KEY_STRING
@@ -484,10 +498,9 @@ public class AODV_Service extends Service
 			// TODO 自動生成されたメソッド・スタブ
 			Date date_rint = new Date();
 			SimpleDateFormat sdf_rint = new SimpleDateFormat("yyyy/MM/dd kk:mm:ss SSS", Locale.JAPANESE);
-			51
+			
 			LogDataBaseOpenHelper.insertLogTableDATA(log_db, state, MyIP, sourceAddress,
 				destinationAddress, dataLength, packageName, sdf_rint.format(date_rint), network_interface);
-
 		}
 
 	};
@@ -604,6 +617,7 @@ public class AODV_Service extends Service
 	public void onDestroy() {
 		if (mChatService != null){
 			mChatService.stop();
+			sensorManager.unregisterListener(this);
 		}
 		// Toast.makeText(this, "service done", Toast.LENGTH_SHORT).show();
 	}
@@ -612,6 +626,10 @@ public class AODV_Service extends Service
     private void setupChat() {
         // Initialize the BluetoothChatService to perform bluetooth connections
         mChatService = new BluetoothChatService(this, this, myAddress);
+        
+        // 加速度センサの情報取得
+        sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
+        sensorManager.registerListener(this, sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER), SensorManager.SENSOR_DELAY_NORMAL);
     }
 
 	// IPアドレス(byte配列)から文字列(例:"127.0.0.1")へ変換
@@ -781,18 +799,22 @@ public class AODV_Service extends Service
 	/*
 	 * RouteTable関連の仕事代行
 	 */
+	// ルートテーブル用ロックオブジェクトを返す
+	public Object getRouteLocker(){
+		return routeLock;
+	}
 	// ルートテーブル中のi番目の要素を返す、排他制御
 	public RouteTable getRoute(int index) {
 		synchronized (routeLock) {
 			
-			Log.d("RouteTable","tableSize = "+routeTable.size()+", index = "+index);
-			for(int i=0;i<routeTable.size();i++){
-				RouteTable route = routeTable.get(i);
-				Log.d("RouteTable","ToAddress:"+getStringByByteAddress(route.toIpAdd));
-				Log.d("RouteTable","NextAddress:"+getStringByByteAddress(route.nextIpAdd));
-				Log.d("RouteTable","State:"+route.stateFlag);
-				Log.d("RouteTable","BT_State:"+Boolean.toString(route.bluetoothFlag));
-			}
+//			Log.d("RouteTable","tableSize = "+routeTable.size()+", index = "+index);
+//			for(int i=0;i<routeTable.size();i++){
+//				RouteTable route = routeTable.get(i);
+//				Log.d("RouteTable","ToAddress:"+getStringByByteAddress(route.toIpAdd));
+//				Log.d("RouteTable","NextAddress:"+getStringByByteAddress(route.nextIpAdd));
+//				Log.d("RouteTable","State:"+route.stateFlag);
+//				Log.d("RouteTable","BT_State:"+Boolean.toString(route.bluetoothFlag));
+//			}
 			
 			return routeTable.get(index);
 		}
@@ -902,6 +924,10 @@ public class AODV_Service extends Service
 		return sendIntentId;
 	}
 	
+	public void subMoveSensorValue(double x){
+		p -= x;
+		if(p < 0)p = 0;
+	}
 	
 	// 経路の自動修復
 	public void localRepair(RouteTable route, byte[] myAdd,final AODV_Service mAODV_Service){
@@ -980,6 +1006,7 @@ public class AODV_Service extends Service
 		
 		if(btFlag){
 			// BT ON
+			appendMessageOnActivity("えええ...\n");
 			// ブロードキャスト？
 			if(getStringByByteAddress(ipAddress).equals("255.255.255.255")){
 				mChatService.write(buffer);
@@ -989,6 +1016,7 @@ public class AODV_Service extends Service
 			}
 		}else{
 			// BT OFF
+			appendMessageOnActivity("ぷぷぷ...\n");
 			// データグラムソケットを開く
 			DatagramSocket soc = null;
 			try {
@@ -1055,6 +1083,45 @@ public class AODV_Service extends Service
 	public Object getReceivedProcessLock(){
 		return receivedProcessLock;
 	}
+
+	@Override
+	public void onAccuracyChanged(Sensor sensor, int accuracy) {
+	}
+
+	@Override
+	public void onSensorChanged(SensorEvent event) {
+        if(event.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
+            double addValue = twoVectorAngle(event.values[0], event.values[1], event.values[2]);
+            
+            p += addValue;
+            if(p > P){
+            	if(!mBluetoothAdapter.isDiscovering())
+            		mBluetoothAdapter.startDiscovery();
+            	p = 0;
+            }
+        }
+	}
+	
+    private double twoVectorAngle(float x,float y,float z){
+    	if(oldx == 0 && oldy == 0 && oldz == 0){
+        	oldx = x;
+        	oldy = y;
+        	oldz = z;
+    		return 0;
+    	}
+        // なす角計算 arccos A・B / |A||B|
+        // ・	:内積
+        // |X|	:ベクトルの長さ(ノルム)]
+        // return 0<= ? <=PI
+    	double result = Math.acos((x*oldx + y*oldy + z*oldz) / (Math.sqrt(x*x + y*y + z*z) * Math.sqrt(oldx*oldx + oldy*oldy + oldz*oldz)));
+    	oldx = x;
+    	oldy = y;
+    	oldz = z;
+    	if(Double.isNaN(result))
+    		return 0;
+    	else
+    		return result/Math.PI/2;
+    }
 	
     /**
      * サービスの次回の起動を予約

@@ -9,6 +9,7 @@ import java.nio.channels.FileChannel;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.concurrent.Semaphore;
@@ -152,7 +153,8 @@ public class ImageViewerActivity extends Activity {
 					if(address_list.size() == 1){
 						// パーミットが利用可能な場合のみ実行
 						if(semaphore.tryAcquire()){
-							image_data = intent.getByteArrayExtra("DATA");
+							HashMap<String,byte[]> dataMap = (HashMap<String,byte[]>)intent.getSerializableExtra("HashMap");
+							image_data = dataMap.get("DATA");
 //							draw_switch = true;
 							new Thread(new Runnable() {
 								@Override
@@ -169,7 +171,8 @@ public class ImageViewerActivity extends Activity {
 						// 開き直し
 						if(semaphore.tryAcquire()){
 //							draw_switch = true;
-							image_data = intent.getByteArrayExtra("DATA");
+							HashMap<String,byte[]> dataMap = (HashMap<String,byte[]>)intent.getSerializableExtra("HashMap");
+							image_data = dataMap.get("DATA");
 
 							new Thread(new Runnable() {
 								@Override

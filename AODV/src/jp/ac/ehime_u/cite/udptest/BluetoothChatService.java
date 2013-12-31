@@ -785,19 +785,25 @@ public class BluetoothChatService{
                     // Read from the InputStream
                 	if(mmInStream.available() > 0){
 	                    bytes = mmInStream.read(buffer);
+	                    mAODV_Service.subMoveSensorValue(bytes / AODV_Service.SUB_RATE);
+	                    
 	                    Log.d(TAG,"バイト数:"+bytes);
+	                    //mAODV_Service.appendMessageOnActivity("type:"+buffer[0]+",length:"+bytes+"\n");
+	                    
 	                    // BT受信処理
-	                    // 1バイトならIpAddressを送る
+	                    // STATIC_IP_REQUESTならIpAddressを送る
 	                    if(bytes == 1 && buffer[0] == STATIC_IP_REQUEST){
 	                        // Ipアドレスを通知
+	                    	byte[] ipNotification = new byte[5];
+	                    	ipNotification[0] = STATIC_IP_DATA;
 	                    	StaticIpAddress sIp = new StaticIpAddress(context);
-	                    	this.write(sIp.getStaticIpByte());
+	                    	System.arraycopy(sIp.getStaticIpByte(), 0, ipNotification, 1, 4);
+	                    	this.write(ipNotification);
+	                    	//mAODV_Service.appendMessageOnActivity("\n"+sIp.getStaticIpByte()[0]+"\n");
 	                    }
 	                    else{
-	                    	mAODV_Service.appendMessageOnActivity(" "+buffer[0]);
-		                    // 4バイトかつ，IpAddressがnullなら、IpAddressとみる
 		                    if(!ipAddressFlag){
-		                    	if(bytes == 4){
+		                    	if(buffer[0] == STATIC_IP_DATA){
 		                    		// アドレスの保管
 		                    		synchronized (mConnThreadsLock) {
 		                    			Iterator<ConnectedDeviceManager> it = mConnThreads.iterator();
@@ -805,7 +811,7 @@ public class BluetoothChatService{
 		                        			ConnectedDeviceManager manager = it.next();
 		                        			if(manager.getMacAddress().equals(mmSocket.getRemoteDevice().getAddress())){
 		                        				preHopAddress = new byte[4];
-		                        				System.arraycopy(buffer, 0, preHopAddress, 0, 4);
+		                        				System.arraycopy(buffer, 1, preHopAddress, 0, 4);
 		                        				manager.setIpAddress(preHopAddress);
 		                        				ipAddressFlag = true;
 		                        				Log.d("IPaddressReceive","True");
@@ -813,6 +819,7 @@ public class BluetoothChatService{
 		                        			}
 		                        		}
 									}
+		                    		mAODV_Service.appendMessageOnActivity("\nBT_IPget!\n");
 		                    	}
 		                    	else{
 		                    		// まだIpAddressが届いてないので催促する制御メッセージの送信
@@ -837,7 +844,7 @@ public class BluetoothChatService{
 		                    			}
 		                    			else{
 //		                    				synchronized(mAODV_Service.getReceivedProcessLock()){
-		                    					ReceiveProcess.process(bufferMtuSize, preHopAddress, false, my_address, context, mAODV_Service);
+		                    					ReceiveProcess.process(bufferMtuSize, preHopAddress, true, my_address, context, mAODV_Service);
 //		                    				}
 		                    			}
 	                    			}
@@ -875,6 +882,7 @@ public class BluetoothChatService{
                 	}
                 } catch (IOException e) {
                     Log.e(TAG, "disconnected", e);
+                    mAODV_Service.appendMessageOnActivity("\ndisconnected@1\n");
 //            		mHandler.post(new Runnable() {
 //            			@Override
 //            			public void run() {
@@ -905,9 +913,19 @@ public class BluetoothChatService{
                 		}
 					}
             		connectionLost();
+                    if(ipRequestThread != null)
+        				if(ipRequestThread.isAlive()){
+        					ipRequestThread.interrupt();
+        					ipRequestThread = null;
+        				}
                     break;
                 } catch (NoSuchAlgorithmException e) {
 					// TODO 自動生成された catch ブロック
+                    if(ipRequestThread != null)
+        				if(ipRequestThread.isAlive()){
+        					ipRequestThread.interrupt();
+        					ipRequestThread = null;
+        				}
 					e.printStackTrace();
 				}
             }
@@ -1038,6 +1056,8 @@ public class BluetoothChatService{
             try {
                 mmOutStream.write(buffer);
                 Log.d(getName(), "送信バイト:"+buffer.length);
+                
+                mAODV_Service.subMoveSensorValue(buffer.length / AODV_Service.SUB_RATE);
             } catch (IOException e) {
                 Log.e(TAG, "Exception during write", e);
             }
@@ -1145,7 +1165,7 @@ public class BluetoothChatService{
 //		                }
 //		            }
 					// スキャンを行い、発見したものから既知デバイスのみと接続
-					
+					if(mConnThreads.size() == 0)
 					if(!mAdapter.isDiscovering()){
 						mAdapter.startDiscovery();
 					}
@@ -1254,6 +1274,7 @@ public class BluetoothChatService{
             				break;
             			}
             		}
+            		mAODV_Service.appendMessageOnActivity("\ndisconnected@2_"+ device.getName() +"\n");
                 }
                 
             }

@@ -5,6 +5,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.Semaphore;
 
@@ -51,7 +52,7 @@ public class CompressThread extends Thread {
 		// バッファ
 		ByteArrayOutputStream byte_array_out_stream;
 		byte_array_out_stream = new ByteArrayOutputStream();
-		// Log.d("ServiceS","たしかに利用している2");
+		
 		yuvimage.compressToJpeg(new Rect(0, 0, width, height),
 				CameraActivity.compress_ratio, byte_array_out_stream);
 		if (byte_array_out_stream.size() <= 60000) {
@@ -63,17 +64,19 @@ public class CompressThread extends Thread {
 			List<String> s_list = null;
 			
 			
-			
 			try {
 				// Serviceを通して送信
+				HashMap<String,byte[]> dataMap = new HashMap<String,byte[]>();
+				dataMap.put("DATA", byte_array_out_stream.toByteArray());
+				dataMap.put("Tekito-", "DOKON".getBytes());
 				if (CameraActivity.sendManager != null) {
 					CameraActivity.sendManager.SendMessage(
 							CameraActivity.calling_address,
 							CameraActivity.my_address, flag, package_name,
 							Intent.ACTION_VIEW, 0, s_null, s_null, s_list,
-							byte_array_out_stream.toByteArray());
-					// AutoFocus.sendManager.Test();
-					// Log.d("ServiceS","たしかに利用している");
+							dataMap);
+					CameraActivity.sendManager.WriteLog(51, CameraActivity.my_address,
+							CameraActivity.calling_address, byte_array_out_stream.size(), package_name);
 				}
 			} catch (RemoteException e) {
 				// TODO 自動生成された catch ブロック

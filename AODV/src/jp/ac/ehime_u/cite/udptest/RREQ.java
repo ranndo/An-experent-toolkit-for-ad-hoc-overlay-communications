@@ -115,31 +115,31 @@ public class RREQ {
 
 	// RREQメッセージからJフィールドを返す
 	public static boolean getFlagJ(byte[] RREQMes){
-		if( (RREQMes[1]&(2<<6)) ==1)
+		if( (RREQMes[1]&(2<<6)) !=0)
 			return true;
 		else return false;
 	}
 	// RREQメッセージからRフィールドを返す
 	public static boolean getFlagR(byte[] RREQMes){
-		if( (RREQMes[1]&(2<<5)) ==1)
+		if( (RREQMes[1]&(2<<5)) !=0)
 			return true;
 		else return false;
 	}
 	// RREQメッセージからGフィールドを返す
 	public static boolean getFlagG(byte[] RREQMes){
-		if( (RREQMes[1]&(2<<4)) ==1)
+		if( (RREQMes[1]&(2<<4)) !=0)
 			return true;
 		else return false;
 	}
 	// RREQメッセージからDフィールドを返す
 	public static boolean getFlagD(byte[] RREQMes){
-		if( (RREQMes[1]&(2<<3)) ==1)
+		if( (RREQMes[1]&(2<<3)) !=0)
 			return true;
 		else return false;
 	}
 	// RREQメッセージからUフィールドを返す
 	public static boolean getFlagU(byte[] RREQMes){
-		if( (RREQMes[1]&(2<<2)) ==1)
+		if( (RREQMes[1]&(2<<2)) !=0)
 			return true;
 		else return false;
 	}
